@@ -1,8 +1,6 @@
 import UIKit
 import WebKit
-import os
 
-private let clipLogger = Logger(subsystem: Bundle.main.bundleIdentifier!, category: "ClipUrl")
 
 /// Args decoded from the JS `invoke('clip_url', { ... })` payload.
 /// Mirrors `ClipOptions` in `clip_url.rs` field-for-field (camelCase
@@ -217,7 +215,7 @@ final class ClipUrlController: UIViewController, WKNavigationDelegate {
     // desktop flow.
     let work = DispatchWorkItem { [weak self] in
       guard let self = self, !self.captureFired else { return }
-      clipLogger.warning("clip_url: hard timeout after \(ClipUrlController.hardTimeoutSeconds, privacy: .public)s")
+      print("clip_url: hard timeout after \(ClipUrlController.hardTimeoutSeconds)s")
       self.finish(.failure(.timedOut))
     }
     timeoutWorkItem = work
@@ -261,7 +259,7 @@ final class ClipUrlController: UIViewController, WKNavigationDelegate {
     webView.evaluateJavaScript("document.documentElement.outerHTML") { [weak self] result, error in
       guard let self = self else { return }
       if let html = result as? String, !html.isEmpty {
-        clipLogger.log("clip_url: captured \(html.count, privacy: .public) chars")
+        print("clip_url: captured \(html.count) chars")
         self.finish(.success(html))
       } else {
         let detail = error?.localizedDescription ?? "empty HTML"

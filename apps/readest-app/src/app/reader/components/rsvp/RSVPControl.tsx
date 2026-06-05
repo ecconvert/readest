@@ -21,6 +21,7 @@ import { Insets } from '@/types/misc';
 import { initJieba } from '@/utils/jieba';
 import RSVPOverlay from './RSVPOverlay';
 import RSVPStartDialog from './RSVPStartDialog';
+import ComprehensionController from '../comprehension/ComprehensionController';
 
 interface RSVPControlProps {
   bookKey: string;
@@ -122,6 +123,7 @@ const RSVPControl: React.FC<RSVPControlProps> = ({ bookKey, gridInsets }) => {
   const [showStartDialog, setShowStartDialog] = useState(false);
   const [startChoice, setStartChoice] = useState<RsvpStartChoice | null>(null);
   const controllerRef = useRef<RSVPController | null>(null);
+  const comprehensionOfferRef = useRef<((words: string[]) => void) | null>(null);
   const tempHighlightRef = useRef<BookNote | null>(null);
   // renderer.primaryIndex reverts after navigation (paginator #detectPrimaryView),
   // so track RSVP's actual section and chapter href in stable refs instead.
@@ -411,6 +413,10 @@ const RSVPControl: React.FC<RSVPControlProps> = ({ bookKey, gridInsets }) => {
       controller.addEventListener('rsvp-stop', handleRsvpStop);
       controller.stop();
       controller.removeEventListener('rsvp-stop', handleRsvpStop);
+
+      // Offer comprehension test after RSVP stops
+      const words = controller.currentState.words.map((w) => w.text);
+      comprehensionOfferRef.current?.(words);
     } else if (controller) {
       controller.stop();
     }
@@ -442,6 +448,14 @@ const RSVPControl: React.FC<RSVPControlProps> = ({ bookKey, gridInsets }) => {
     settings,
     themeCode.primary,
   ]);
+
+  const handleQuiz = useCallback(() => {
+    const controller = controllerRef.current;
+    if (!controller) return;
+    const words = controller.currentState.words.map((w) => w.text);
+    handleClose();
+    comprehensionOfferRef.current?.(words);
+  }, [handleClose]);
 
   const handleChapterSelect = useCallback(
     (href: string) => {
@@ -524,8 +538,23 @@ const RSVPControl: React.FC<RSVPControlProps> = ({ bookKey, gridInsets }) => {
   // Use portal to render overlay at body level to avoid stacking context issues
   const portalContainer = typeof document !== 'undefined' ? document.body : null;
 
+  const book = bookData?.book;
+
   return (
     <>
+      {/* Comprehension controller - rendered outside portal so it sits above everything */}
+      {book && (
+        <ComprehensionController
+          bookHash={book.hash}
+          bookTitle={book.title}
+          authorName={book.author}
+          aiSettings={settings.aiSettings}
+          onRegisterOffer={(fn) => {
+            comprehensionOfferRef.current = fn;
+          }}
+        />
+      )}
+
       {/* Start dialog - render via portal */}
       {showStartDialog &&
         startChoice &&
@@ -550,6 +579,7 @@ const RSVPControl: React.FC<RSVPControlProps> = ({ bookKey, gridInsets }) => {
             chapters={chapters}
             currentChapterHref={currentChapterHref}
             onClose={handleClose}
+            onQuiz={handleQuiz}
             onChapterSelect={handleChapterSelect}
             onRequestNextPage={handleRequestNextPage}
           />,

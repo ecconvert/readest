@@ -17,6 +17,7 @@ import {
   IoAdd,
   IoChevronDown,
   IoSettingsSharp,
+  IoBulb,
 } from 'react-icons/io5';
 import { useTranslation } from '@/hooks/useTranslation';
 import { Overlay } from '@/components/Overlay';
@@ -79,6 +80,7 @@ interface RSVPOverlayProps {
   chapters: TOCItem[];
   currentChapterHref: string | null;
   onClose: () => void;
+  onQuiz: () => void;
   onChapterSelect: (href: string) => void;
   onRequestNextPage: () => void;
 }
@@ -89,6 +91,7 @@ const RSVPOverlay: React.FC<RSVPOverlayProps> = ({
   chapters,
   currentChapterHref,
   onClose,
+  onQuiz,
   onChapterSelect,
   onRequestNextPage,
 }) => {
@@ -528,6 +531,15 @@ const RSVPOverlay: React.FC<RSVPOverlayProps> = ({
           onClick={onClose}
         >
           <IoClose className='h-5 w-5' />
+        </button>
+
+        <button
+          aria-label={_('Comprehension Quiz')}
+          title={_('Comprehension Quiz')}
+          className='flex h-9 w-9 shrink-0 items-center justify-center rounded-full transition-colors hover:bg-gray-500/20'
+          onClick={onQuiz}
+        >
+          <IoBulb className='h-5 w-5' />
         </button>
 
         {/* Chapter selector */}

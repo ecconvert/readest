@@ -1,7 +1,5 @@
 import StoreKit
-import os
 
-private let logger = Logger(subsystem: Bundle.main.bundleIdentifier!, category: "StoreKitManager")
 
 class StoreKitManager: NSObject, SKProductsRequestDelegate, SKPaymentTransactionObserver {
   static let shared = StoreKitManager()
@@ -61,7 +59,7 @@ class StoreKitManager: NSObject, SKProductsRequestDelegate, SKPaymentTransaction
 
   func request(_ request: SKRequest, didFailWithError error: Error) {
     DispatchQueue.main.async { [weak self] in
-      logger.error("Products request failed: \(error.localizedDescription)")
+      print("Products request failed: \(error.localizedDescription)")
       self?.productResponseHandler?([])
       self?.productResponseHandler = nil
     }
@@ -113,7 +111,7 @@ class StoreKitManager: NSObject, SKProductsRequestDelegate, SKPaymentTransaction
     _ queue: SKPaymentQueue, restoreCompletedTransactionsFailedWithError error: Error
   ) {
     DispatchQueue.main.async { [weak self] in
-      logger.error("Restore purchases failed: \(error.localizedDescription)")
+      print("Restore purchases failed: \(error.localizedDescription)")
       self?.restoreHandler?([])
       self?.restoreHandler = nil
     }

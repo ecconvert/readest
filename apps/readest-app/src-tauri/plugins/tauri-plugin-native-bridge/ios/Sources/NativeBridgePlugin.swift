@@ -9,9 +9,7 @@ import Tauri
 import UIKit
 import UniformTypeIdentifiers
 import WebKit
-import os
 
-private let logger = Logger(subsystem: Bundle.main.bundleIdentifier!, category: "NativeBridge")
 
 func getLocalizedDisplayName(familyName: String) -> String? {
   let fontDescriptor = CTFontDescriptorCreateWithAttributes(
@@ -107,7 +105,7 @@ class VolumeKeyHandler: NSObject {
       stopInterception()
     }
 
-    logger.log("Starting volume key interception")
+    print("Starting volume key interception")
     self.webView = webView
     isIntercepting = true
 
@@ -116,7 +114,7 @@ class VolumeKeyHandler: NSObject {
       try audioSession?.setCategory(.playback, mode: .default, options: [.mixWithOthers])
       try audioSession?.setActive(true)
     } catch {
-      logger.error("Failed to activate audio session: \(error)")
+      print("Failed to activate audio session: \(error)")
     }
 
     DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) { [weak self] in
@@ -129,7 +127,7 @@ class VolumeKeyHandler: NSObject {
       } else {
         self.referenceVolume = self.originalVolume
       }
-      logger.log("Reference volume set to \(self.referenceVolume)")
+      print("Reference volume set to \(self.referenceVolume)")
       self.previousVolume = self.referenceVolume
       self.setSessionVolume(self.referenceVolume)
       self.setupHiddenVolumeView()
@@ -145,7 +143,7 @@ class VolumeKeyHandler: NSObject {
       return
     }
 
-    logger.log("Stopping volume key interception")
+    print("Stopping volume key interception")
     isIntercepting = false
     audioSession?.removeObserver(self, forKeyPath: "outputVolume")
     DispatchQueue.main.async { [weak self] in
@@ -214,7 +212,7 @@ class MediaKeyHandler {
       self?.forward("MediaPrevious")
       return .success
     }
-    logger.log("MediaKeyHandler: started")
+    print("MediaKeyHandler: started")
   }
 
   func stop() {
@@ -222,7 +220,7 @@ class MediaKeyHandler {
     registered = false
     commandCenter.nextTrackCommand.removeTarget(nil)
     commandCenter.previousTrackCommand.removeTarget(nil)
-    logger.log("MediaKeyHandler: stopped")
+    print("MediaKeyHandler: stopped")
   }
 
   private func forward(_ name: String) {
@@ -245,7 +243,7 @@ class WebViewLifecycleManager: NSObject {
     originalNavigationDelegate = webView.navigationDelegate
     webView.navigationDelegate = self
     isMonitoring = true
-    logger.log("WebViewLifecycleManager: Started monitoring WebView")
+    print("WebViewLifecycleManager: Started monitoring WebView")
   }
 
   func stopMonitoring() {
@@ -254,27 +252,27 @@ class WebViewLifecycleManager: NSObject {
       webView?.navigationDelegate = original
     }
 
-    logger.log("WebViewLifecycleManager: Stopped monitoring WebView")
+    print("WebViewLifecycleManager: Stopped monitoring WebView")
   }
 
   func handleAppWillEnterForeground() {
     guard isMonitoring, let webView = webView else {
-      logger.warning(
+      print(
         "WebViewLifecycleManager: Cannot handle foreground - not monitoring or webView is nil")
       return
     }
 
-    logger.log("WebViewLifecycleManager: App entering foreground")
+    print("WebViewLifecycleManager: App entering foreground")
 
     var timeInBackground: TimeInterval = 0
     if let backgroundTime = lastBackgroundTime {
       timeInBackground = Date().timeIntervalSince(backgroundTime)
-      logger.log("WebViewLifecycleManager: Time in background: \(timeInBackground)s")
+      print("WebViewLifecycleManager: Time in background: \(timeInBackground)s")
     }
 
     // If app was backgrounded for more than threshold, check WebView health
     if timeInBackground > backgroundTimeThreshold {
-      logger.log(
+      print(
         "WebViewLifecycleManager: App was backgrounded for \(timeInBackground)s, checking WebView health..."
       )
       checkAndRecoverWebView(webView, reason: "long_background")
@@ -289,18 +287,18 @@ class WebViewLifecycleManager: NSObject {
   }
 
   func handleAppWillResignActive() {
-    logger.log("WebViewLifecycleManager: App will resign active")
+    print("WebViewLifecycleManager: App will resign active")
     guard let webView = webView else { return }
     webView.evaluateJavaScript("window.location.href") { result, error in
       if let error = error {
-        logger.error("WebViewLifecycleManager: Failed to capture URL on background: \(error)")
+        print("WebViewLifecycleManager: Failed to capture URL on background: \(error)")
         return
       }
 
       if let urlString = result as? String {
         if urlString.hasPrefix("http") || urlString.hasPrefix("tauri") {
           UserDefaults.standard.set(urlString, forKey: "tauri_last_valid_url")
-          logger.log("WebViewLifecycleManager: Saved valid URL")
+          print("WebViewLifecycleManager: Saved valid URL")
         }
       }
     }
@@ -311,15 +309,15 @@ class WebViewLifecycleManager: NSObject {
   }
 
   private func quickHealthCheck(_ webView: WKWebView) {
-    logger.log("WebViewLifecycleManager: Performing quick health check")
+    print("WebViewLifecycleManager: Performing quick health check")
 
     webView.evaluateJavaScript("window.location.href") { [weak self] result, error in
       if let error = error {
-        logger.error("WebViewLifecycleManager: Quick health check failed: \(error)")
+        print("WebViewLifecycleManager: Quick health check failed: \(error)")
         self?.checkAndRecoverWebView(webView, reason: "health_check_failed")
       } else if let urlString = result as? String {
         if urlString.contains("about:blank") || urlString.isEmpty {
-          logger.warning("WebViewLifecycleManager: WebView showing about:blank!")
+          print("WebViewLifecycleManager: WebView showing about:blank!")
           self?.recoverWebView(webView, reason: "about_blank")
         }
       }
@@ -327,20 +325,20 @@ class WebViewLifecycleManager: NSObject {
   }
 
   private func checkAndRecoverWebView(_ webView: WKWebView, reason: String) {
-    logger.log("WebViewLifecycleManager: Checking WebView health (reason: \(reason))")
+    print("WebViewLifecycleManager: Checking WebView health (reason: \(reason))")
 
     DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) { [weak self] in
       webView.evaluateJavaScript("window.location.href") { result, error in
         if let error = error {
-          logger.error("WebViewLifecycleManager: Error checking WebView URL: \(error)")
+          print("WebViewLifecycleManager: Error checking WebView URL: \(error)")
           self?.recoverWebView(webView, reason: "js_error_\(reason)")
         } else if let urlString = result as? String {
-          logger.log("WebViewLifecycleManager: Current URL after \(reason): \(urlString)")
+          print("WebViewLifecycleManager: Current URL after \(reason): \(urlString)")
           if urlString.contains("about:blank") || urlString.isEmpty {
-            logger.warning("WebViewLifecycleManager: Detected blank WebView after \(reason)")
+            print("WebViewLifecycleManager: Detected blank WebView after \(reason)")
             self?.recoverWebView(webView, reason: reason)
           } else {
-            logger.log("WebViewLifecycleManager: WebView appears healthy")
+            print("WebViewLifecycleManager: WebView appears healthy")
           }
         }
       }
@@ -348,15 +346,15 @@ class WebViewLifecycleManager: NSObject {
   }
 
   private func recoverWebView(_ webView: WKWebView, reason: String) {
-    logger.log("WebViewLifecycleManager: Recovering WebView (reason: \(reason))")
+    print("WebViewLifecycleManager: Recovering WebView (reason: \(reason))")
 
     if let lastURL = UserDefaults.standard.string(forKey: "tauri_last_valid_url"),
       let url = URL(string: lastURL)
     {
-      logger.log("WebViewLifecycleManager: Reloading from saved URL: \(lastURL)")
+      print("WebViewLifecycleManager: Reloading from saved URL: \(lastURL)")
       webView.load(URLRequest(url: url))
     } else {
-      logger.log("WebViewLifecycleManager: No saved URL, performing standard reload")
+      print("WebViewLifecycleManager: No saved URL, performing standard reload")
       webView.reload()
     }
   }
@@ -365,7 +363,7 @@ class WebViewLifecycleManager: NSObject {
 extension WebViewLifecycleManager: WKNavigationDelegate {
 
   func webViewWebContentProcessDidTerminate(_ webView: WKWebView) {
-    logger.error("WebViewLifecycleManager: WebContent process TERMINATED!️")
+    print("WebViewLifecycleManager: WebContent process TERMINATED!️")
     recoverWebView(webView, reason: "process_terminated")
 
     if let original = originalNavigationDelegate,
@@ -382,7 +380,7 @@ extension WebViewLifecycleManager: WKNavigationDelegate {
 
       if urlString.hasPrefix("http") || urlString.hasPrefix("tauri") {
         UserDefaults.standard.set(urlString, forKey: "tauri_last_valid_url")
-        logger.log("WebViewLifecycleManager: Saved valid URL")
+        print("WebViewLifecycleManager: Saved valid URL")
       }
     }
 
@@ -395,7 +393,7 @@ extension WebViewLifecycleManager: WKNavigationDelegate {
 
   // Proxy other important navigation delegate methods
   func webView(_ webView: WKWebView, didFail navigation: WKNavigation!, withError error: Error) {
-    logger.error("WebViewLifecycleManager: Navigation failed: \(error)")
+    print("WebViewLifecycleManager: Navigation failed: \(error)")
 
     if let original = originalNavigationDelegate,
       original.responds(to: #selector(webView(_:didFail:withError:)))
@@ -408,7 +406,7 @@ extension WebViewLifecycleManager: WKNavigationDelegate {
     _ webView: WKWebView, didFailProvisionalNavigation navigation: WKNavigation!,
     withError error: Error
   ) {
-    logger.error("WebViewLifecycleManager: Provisional navigation failed: \(error)")
+    print("WebViewLifecycleManager: Provisional navigation failed: \(error)")
 
     if let original = originalNavigationDelegate,
       original.responds(to: #selector(webView(_:didFailProvisionalNavigation:withError:)))
@@ -468,7 +466,7 @@ class NativeBridgePlugin: Plugin {
 
   @objc public override func load(webview: WKWebView) {
     self.webView = webview
-    logger.log("NativeBridgePlugin loaded")
+    print("NativeBridgePlugin loaded")
 
     // Suppress the iOS system text-selection edit menu so it never
     // covers Readest's annotation toolbar. See ContextMenuSuppressor.
@@ -484,7 +482,7 @@ class NativeBridgePlugin: Plugin {
 
     webViewLifecycleManager = WebViewLifecycleManager()
     webViewLifecycleManager?.startMonitoring(webView: webview)
-    logger.log("NativeBridgePlugin: WebView lifecycle monitoring activated")
+    print("NativeBridgePlugin: WebView lifecycle monitoring activated")
 
     // The WKWebView never fires the `prefers-color-scheme` media query
     // `change` event while the app stays foregrounded, so observe the
@@ -519,7 +517,7 @@ class NativeBridgePlugin: Plugin {
       self.originalDelegate = app.delegate
       app.delegate = self
     } else {
-      Logger.error("NativeBridgePlugin: Failed to get shared application")
+      print("NativeBridgePlugin: Failed to get shared application")
     }
 
     // Re-acquire security-scoped access for every external library
@@ -531,7 +529,7 @@ class NativeBridgePlugin: Plugin {
   }
 
   @objc func appWillEnterForeground() {
-    logger.log("NativeBridgePlugin: App will enter foreground")
+    print("NativeBridgePlugin: App will enter foreground")
     webViewLifecycleManager?.handleAppWillEnterForeground()
   }
 
@@ -557,7 +555,7 @@ class NativeBridgePlugin: Plugin {
 
   /// Bridge between the Readest Share Extension (separate process) and
   /// the host app's JS, via the App Group container at
-  /// `group.com.bilingify.readest`. Two directions on every activation:
+  /// `group.com.ecconvert.readest`. Two directions on every activation:
   ///
   ///   1. Groups (host → extension). Read the current library group list
   ///      from JS (`window.__readestGetGroups`) and persist it so the
@@ -654,7 +652,7 @@ class NativeBridgePlugin: Plugin {
   }
 
   @objc func appDidEnterBackground() {
-    logger.log("NativeBridgePlugin: App did enter background")
+    print("NativeBridgePlugin: App did enter background")
     if let handler = volumeKeyHandler, handler.isIntercepting {
       handler.stopInterception()
     }
@@ -670,7 +668,7 @@ class NativeBridgePlugin: Plugin {
       volumeKeyHandler?.stopInterception()
       volumeKeyHandler?.startInterception(webView: webView)
     } else {
-      logger.warning("Cannot activate volume key interception: webView is nil")
+      print("Cannot activate volume key interception: webView is nil")
     }
   }
 
@@ -739,7 +737,7 @@ class NativeBridgePlugin: Plugin {
       if let webView = self.webView {
         mediaKeyHandler?.start(webView: webView)
       } else {
-        logger.warning("Cannot start media key handler: webView is nil")
+        print("Cannot start media key handler: webView is nil")
       }
     } else {
       mediaKeyHandler?.stop()
@@ -755,15 +753,15 @@ class NativeBridgePlugin: Plugin {
       if enabled {
         try session.setCategory(.playback, mode: .default, options: [.mixWithOthers])
         try session.setActive(true)
-        logger.log("AVAudioSession activated")
+        print("AVAudioSession activated")
       } else {
         try session.setActive(false)
         MPNowPlayingInfoCenter.default().nowPlayingInfo = nil
-        logger.log("AVAudioSession deactivated")
+        print("AVAudioSession deactivated")
       }
       invoke.resolve()
     } catch {
-      logger.error("Failed to set up audio session: \(error)")
+      print("Failed to set up audio session: \(error)")
     }
   }
 
@@ -776,7 +774,7 @@ class NativeBridgePlugin: Plugin {
       guard let strongSelf = self else { return }
 
       if let error = error {
-        logger.error("Auth session error: \(error.localizedDescription)")
+        print("Auth session error: \(error.localizedDescription)")
         invoke.reject(error.localizedDescription)
         return
       }
@@ -793,7 +791,7 @@ class NativeBridgePlugin: Plugin {
     }
 
     let started = authSession?.start() ?? false
-    logger.log("Auth session start result: \(started)")
+    print("Auth session start result: \(started)")
   }
 
   @objc public func set_system_ui_visibility(_ invoke: Invoke) throws {
@@ -813,7 +811,7 @@ class NativeBridgePlugin: Plugin {
         keyWindow.overrideUserInterfaceStyle = darkMode ? .dark : .light
         keyWindow.layoutIfNeeded()
       } else {
-        logger.error("No key window found")
+        print("No key window found")
       }
     }
     invoke.resolve(["success": true])
@@ -908,14 +906,14 @@ class NativeBridgePlugin: Plugin {
         }
         if orientationMask == .all {
           windowScene.requestGeometryUpdate(.iOS(interfaceOrientations: .all)) { error in
-            logger.error("Orientation update error: \(error.localizedDescription)")
+            print("Orientation update error: \(error.localizedDescription)")
             DispatchQueue.main.async {
               UIViewController.attemptRotationToDeviceOrientation()
             }
           }
         } else {
           windowScene.requestGeometryUpdate(.iOS(interfaceOrientations: orientationMask)) { error in
-            logger.error("Orientation update error: \(error.localizedDescription)")
+            print("Orientation update error: \(error.localizedDescription)")
           }
         }
       }
@@ -1161,7 +1159,7 @@ class NativeBridgePlugin: Plugin {
   // CryptoSession reads/writes via these commands so the user's sync
   // passphrase persists across app launches.
 
-  private static let syncKeychainService = "com.bilingify.readest.sync-passphrase"
+  private static let syncKeychainService = "com.ecconvert.readest.sync-passphrase"
   private static let syncKeychainAccount = "default"
 
   private func syncKeychainBaseQuery() -> [String: Any] {
@@ -1282,7 +1280,7 @@ class NativeBridgePlugin: Plugin {
       // the expected UX. Logging it is enough for diagnostics.
       let hasDefinition = UIReferenceLibraryViewController.dictionaryHasDefinition(forTerm: trimmed)
       if !hasDefinition {
-        logger.log("[show_lookup_popover] no built-in dictionary entry for '\(trimmed, privacy: .private)'")
+        print("[show_lookup_popover] no built-in dictionary entry for '\(trimmed)'")
       }
 
       let dictVC = UIReferenceLibraryViewController(term: trimmed)
@@ -1466,10 +1464,10 @@ enum FolderBookmarkStore {
         relativeTo: nil)
       UserDefaults.standard.set(data, forKey: keyPrefix + path)
       liveAccess[path] = url
-      logger.log(
-        "FolderBookmarkStore: persisted bookmark for \(path, privacy: .public)")
+      print(
+        "FolderBookmarkStore: persisted bookmark for \(path)")
     } catch {
-      Logger.error(
+      print(
         "FolderBookmarkStore: failed to encode bookmark for \(path): \(error)")
     }
   }
@@ -1503,7 +1501,7 @@ enum FolderBookmarkStore {
           // The OS denied access (e.g. file provider revoked). Don't
           // delete the entry — the user may reauthorize the provider
           // in Settings; we'll pick it up on the next launch.
-          Logger.error(
+          print(
             "FolderBookmarkStore: startAccessing denied for \(storedPath)")
         }
         if isStale {
@@ -1523,12 +1521,12 @@ enum FolderBookmarkStore {
         // doesn't re-attempt it.
         defaults.removeObject(forKey: key)
         dropped += 1
-        Logger.error(
+        print(
           "FolderBookmarkStore: dropped unresolvable bookmark for \(storedPath): \(error)")
       }
     }
-    logger.log(
-      "FolderBookmarkStore: restored \(restored, privacy: .public) folder(s), dropped \(dropped, privacy: .public)"
+    print(
+      "FolderBookmarkStore: restored \(restored) folder(s), dropped \(dropped)"
     )
   }
 
@@ -1666,7 +1664,6 @@ private final class ShareBridgeMessageHandler: NSObject, WKScriptMessageHandler 
   }
 }
 
-@available(iOS 13.0, *)
 extension NativeBridgePlugin: ASWebAuthenticationPresentationContextProviding {
   func presentationAnchor(for session: ASWebAuthenticationSession) -> ASPresentationAnchor {
     return UIApplication.shared.windows.first ?? UIWindow()

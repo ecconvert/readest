@@ -1,10 +1,7 @@
 import ObjectiveC
 import UIKit
 import WebKit
-import os
 
-private let logger = Logger(
-  subsystem: Bundle.main.bundleIdentifier!, category: "ContextMenuSuppressor")
 
 /// Suppresses the iOS system text-selection menu (Copy / Look Up / Translate
 /// / Share) for non-editable web content, so it never covers Readest's own
@@ -38,7 +35,7 @@ enum ContextMenuSuppressor {
     // web content and the selection menu. A future Apple rename makes this
     // lookup fail; we log and no-op rather than crash.
     guard let contentViewClass = NSClassFromString("WKContentView") else {
-      logger.warning("WKContentView class not found; menu suppression disabled")
+      print("WKContentView class not found; menu suppression disabled")
       return
     }
 
@@ -69,7 +66,7 @@ enum ContextMenuSuppressor {
     let selector = NSSelectorFromString(
       "editMenuInteraction:menuForConfiguration:suggestedActions:")
     guard let method = class_getInstanceMethod(cls, selector) else {
-      logger.warning(
+      print(
         "editMenuInteraction delegate method not found; iOS 16+ menu suppression disabled")
       return
     }
@@ -105,7 +102,7 @@ enum ContextMenuSuppressor {
   private static func installPresentEditMenuSwizzle() {
     let selector = #selector(UIEditMenuInteraction.presentEditMenu(with:))
     guard let method = class_getInstanceMethod(UIEditMenuInteraction.self, selector) else {
-      logger.warning(
+      print(
         "presentEditMenu(with:) not found; present-time suppression disabled")
       return
     }
@@ -134,7 +131,7 @@ enum ContextMenuSuppressor {
   private static func installCanPerformActionSwizzle(on cls: AnyClass) {
     let selector = #selector(UIResponder.canPerformAction(_:withSender:))
     guard let method = class_getInstanceMethod(cls, selector) else {
-      logger.warning(
+      print(
         "canPerformAction(_:withSender:) not found; legacy menu suppression disabled")
       return
     }

@@ -145,11 +145,9 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
         ) : null}
       </head>
       <body>
-        <ViewTransitions>
-          <EnvProvider>
-            <Providers>{children}</Providers>
-          </EnvProvider>
-        </ViewTransitions>
+        <EnvProvider>
+          <Providers>{children}</Providers>
+        </EnvProvider>
       </body>
     </html>
   );
