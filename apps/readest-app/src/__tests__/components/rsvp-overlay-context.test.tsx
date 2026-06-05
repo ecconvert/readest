@@ -83,6 +83,7 @@ const renderOverlay = (state: RsvpState) => {
       chapters={[]}
       currentChapterHref={null}
       onClose={vi.fn()}
+      onQuiz={vi.fn()}
       onChapterSelect={vi.fn()}
       onRequestNextPage={vi.fn()}
     />,
