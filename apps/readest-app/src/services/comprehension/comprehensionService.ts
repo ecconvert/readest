@@ -35,18 +35,18 @@ function buildPrompt(
       ? `\n\nThese questions have already been asked — generate DIFFERENT questions covering other parts of the passage:\n${avoidQuestions.map((q) => `- ${q}`).join('\n')}`
       : '';
 
-  return `You are a reading comprehension tutor. Generate exactly ${questionCount} multiple-choice questions based on the passage below.
+  return `You are a reading comprehension tutor. Generate exactly ${questionCount} multiple-choice questions based STRICTLY on the passage below.
 
-Book: ${meta}
+IMPORTANT: Only use information explicitly stated in the passage. Do NOT use any outside knowledge, context, or information about ${meta} beyond what appears in the passage text.
 
 PASSAGE:
 ${passage}${avoidBlock}
 
 Return a JSON object with a "questions" array of exactly ${questionCount} items. Each item must have:
-- "question": string
+- "question": string (must be answerable using only the passage above)
 - "options": array of exactly 4 strings (A, B, C, D)
 - "correct": 0-indexed integer (0=A, 1=B, 2=C, 3=D)
-- "explanation": one short sentence explaining the correct answer`;
+- "explanation": one short sentence citing where in the passage the answer appears`;
 }
 
 export async function generateQuestions(
@@ -66,7 +66,7 @@ export async function generateQuestions(
     schema: QuestionsSchema,
     prompt,
     temperature: 0.6,
-    maxTokens: Math.max(1024, questionCount * 300),
+    maxOutputTokens: Math.max(1024, questionCount * 300),
   });
 
   return object.questions as ComprehensionQuestion[];
