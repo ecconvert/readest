@@ -37,7 +37,9 @@ function buildPrompt(
 
   return `You are a reading comprehension tutor. Generate exactly ${questionCount} multiple-choice questions based STRICTLY on the passage below.
 
-IMPORTANT: Only use information explicitly stated in the passage. Do NOT use any outside knowledge, context, or information about ${meta} beyond what appears in the passage text.
+Book: ${meta}
+
+IMPORTANT: Only use information explicitly stated in the passage. Do NOT use any outside knowledge about this book beyond what appears in the passage text.
 
 PASSAGE:
 ${passage}${avoidBlock}
