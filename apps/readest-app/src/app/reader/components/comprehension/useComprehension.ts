@@ -1,7 +1,7 @@
 'use client';
 
 import { useState, useCallback } from 'react';
-import { generateQuestions, saveSession } from '@/services/comprehension';
+import { generateQuestions, reviewQuestion, saveSession } from '@/services/comprehension';
 import type { ComprehensionQuestion, ComprehensionResult } from '@/services/comprehension';
 import type { AISettings } from '@/services/ai/types';
 
@@ -14,6 +14,8 @@ interface ComprehensionState {
   currentIndex: number;
   error: string | null;
   lastPrompt: string | null;
+  reviewText: string | null;
+  reviewLoading: boolean;
 }
 
 const INITIAL_STATE: ComprehensionState = {
@@ -23,6 +25,8 @@ const INITIAL_STATE: ComprehensionState = {
   currentIndex: 0,
   error: null,
   lastPrompt: null,
+  reviewText: null,
+  reviewLoading: false,
 };
 
 export function useComprehension(
@@ -89,7 +93,13 @@ export function useComprehension(
         explanation: q.explanation,
         isCorrect: chosenIndex === q.correct,
       };
-      return { ...s, phase: 'feedback', results: [...s.results, result] };
+      return {
+        ...s,
+        phase: 'feedback',
+        results: [...s.results, result],
+        reviewText: null,
+        reviewLoading: false,
+      };
     });
   }, []);
 
@@ -106,14 +116,40 @@ export function useComprehension(
           total: s.results.length,
           results: s.results,
         });
-        return { ...s, phase: 'results' };
+        return { ...s, phase: 'results', reviewText: null, reviewLoading: false };
       }
-      return { ...s, phase: 'question', currentIndex: nextIndex };
+      return {
+        ...s,
+        phase: 'question',
+        currentIndex: nextIndex,
+        reviewText: null,
+        reviewLoading: false,
+      };
     });
   }, [bookHash]);
 
+  // Ask the model to re-check the question the reader just got wrong, in case
+  // it was mis-keyed or ambiguous.
+  const review = useCallback(
+    async (result: ComprehensionResult) => {
+      if (!aiSettings) return;
+      setState((s) => ({ ...s, reviewLoading: true, reviewText: null }));
+      try {
+        const text = await reviewQuestion(result, sessionWords, bookTitle, authorName, aiSettings);
+        setState((s) => ({ ...s, reviewLoading: false, reviewText: text }));
+      } catch (err) {
+        setState((s) => ({
+          ...s,
+          reviewLoading: false,
+          reviewText: err instanceof Error ? err.message : 'Could not review this question',
+        }));
+      }
+    },
+    [aiSettings, sessionWords, bookTitle, authorName],
+  );
+
   const more = useCallback(() => {
-    setState((s) => ({ ...s, phase: 'generating' }));
+    setState((s) => ({ ...s, phase: 'generating', reviewText: null, reviewLoading: false }));
     // Pull current results from state to pass as prior — use functional update
     setState((s) => {
       void startTest(s.results);
@@ -125,5 +161,5 @@ export function useComprehension(
     setState(INITIAL_STATE);
   }, []);
 
-  return { state, offer, startTest, answer, next, more, dismiss };
+  return { state, offer, startTest, answer, next, more, review, dismiss };
 }

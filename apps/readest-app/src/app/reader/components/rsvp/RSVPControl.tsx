@@ -130,6 +130,12 @@ const RSVPControl: React.FC<RSVPControlProps> = ({ bookKey, gridInsets }) => {
   // Words of the chapter just finished at an intra-section chapter boundary,
   // so the quiz is scoped to that chapter rather than the whole spine section.
   const pendingQuizWordsRef = useRef<string[] | null>(null);
+  // When a quiz is taken at a chapter/section boundary we keep RSVP alive and
+  // resume playback once the quiz closes, instead of exiting speed-read mode.
+  const resumeAfterQuizRef = useRef(false);
+  // Stable mirror of `isActive` so the comprehension onClosed callback reads the
+  // current value without a stale closure.
+  const isActiveRef = useRef(false);
   const controllerRef = useRef<RSVPController | null>(null);
   const comprehensionOfferRef = useRef<((words: string[]) => void) | null>(null);
   const tempHighlightRef = useRef<BookNote | null>(null);
@@ -137,6 +143,12 @@ const RSVPControl: React.FC<RSVPControlProps> = ({ bookKey, gridInsets }) => {
   // so track RSVP's actual section and chapter href in stable refs instead.
   const rsvpSectionRef = useRef<number>(-1);
   const rsvpChapterHrefRef = useRef<string | null>(null);
+
+  // Keep the ref in sync so callbacks that fire outside React's render flow
+  // (e.g. comprehension dialog close) see the latest active state.
+  useEffect(() => {
+    isActiveRef.current = isActive;
+  }, [isActive]);
 
   // Helper to remove any existing RSVP highlight
   const removeRsvpHighlight = useCallback(() => {
@@ -171,9 +183,9 @@ const RSVPControl: React.FC<RSVPControlProps> = ({ bookKey, gridInsets }) => {
   // Listen for RSVP start events
   useEffect(() => {
     const handleRSVPStart = (event: CustomEvent) => {
-      const { bookKey: rsvpBookKey, selectionText } = event.detail;
+      const { bookKey: rsvpBookKey, selectionText, autoStart } = event.detail;
       if (bookKey !== rsvpBookKey) return;
-      handleStart(selectionText);
+      handleStart(selectionText, autoStart);
     };
 
     const handleRSVPStop = (event: CustomEvent) => {
@@ -193,7 +205,7 @@ const RSVPControl: React.FC<RSVPControlProps> = ({ bookKey, gridInsets }) => {
   }, [bookKey]);
 
   const handleStart = useCallback(
-    (selectionText?: string) => {
+    (selectionText?: string, autoStart?: 'resume' | 'beginning') => {
       const view = getView(bookKey);
       const bookData = getBookData(bookKey);
       const progress = getProgress(bookKey);
@@ -261,6 +273,18 @@ const RSVPControl: React.FC<RSVPControlProps> = ({ bookKey, gridInsets }) => {
       const handleStartChoice = (e: Event) => {
         const choice = (e as CustomEvent<RsvpStartChoice>).detail;
         setStartChoice(choice);
+
+        // Deep-link / shortcut entry: skip the dialog and start immediately.
+        if (autoStart === 'resume') {
+          controller.startFromCurrentPosition();
+          setIsActive(true);
+          return;
+        }
+        if (autoStart === 'beginning') {
+          controller.startFromBeginning();
+          setIsActive(true);
+          return;
+        }
 
         // If there's a saved position or selection, show dialog for user to choose
         if (choice.hasSavedPosition || choice.hasSelection) {
@@ -454,6 +478,8 @@ const RSVPControl: React.FC<RSVPControlProps> = ({ bookKey, gridInsets }) => {
     setQuizFlash(false);
     quizPromptSectionRef.current = null;
     pendingQuizWordsRef.current = null;
+    // Manual exit (X button / rsvp-stop) must not auto-resume after the quiz.
+    resumeAfterQuizRef.current = false;
   }, [
     bookKey,
     envConfig,
@@ -475,9 +501,12 @@ const RSVPControl: React.FC<RSVPControlProps> = ({ bookKey, gridInsets }) => {
     // spine sections), not the whole section.
     const words = pendingQuizWordsRef.current ?? controller.getCurrentChapterWords();
     pendingQuizWordsRef.current = null;
-    handleClose();
+    // Stay in speed-read mode: keep the controller paused at the boundary and
+    // resume playback once the quiz closes, instead of tearing RSVP down.
+    resumeAfterQuizRef.current = true;
+    controller.pause();
     comprehensionOfferRef.current?.(words);
-  }, [handleClose]);
+  }, []);
 
   // Fired by the controller when RSVP finishes a chapter inside a spine
   // section (e.g. between 1984's Part-internal chapters). The controller has
@@ -637,6 +666,14 @@ const RSVPControl: React.FC<RSVPControlProps> = ({ bookKey, gridInsets }) => {
           aiSettings={settings.aiSettings}
           onRegisterOffer={(fn) => {
             comprehensionOfferRef.current = fn;
+          }}
+          onClosed={() => {
+            // Resume speed-reading after a boundary quiz closes, so the user
+            // stays in RSVP mode instead of being dropped back to the reader.
+            if (resumeAfterQuizRef.current && isActiveRef.current) {
+              resumeAfterQuizRef.current = false;
+              controllerRef.current?.resume();
+            }
           }}
         />
       )}

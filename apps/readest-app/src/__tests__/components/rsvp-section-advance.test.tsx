@@ -1,9 +1,11 @@
 'use client';
 
+import React from 'react';
 import { render, act, cleanup } from '@testing-library/react';
-import { afterEach, beforeEach, describe, expect, test, vi } from 'vitest';
+import { afterEach, beforeEach, describe, expect, test, vi, type Mock } from 'vitest';
 
 import RSVPControl from '@/app/reader/components/rsvp/RSVPControl';
+import { RSVPController } from '@/services/rsvp';
 import { eventDispatcher } from '@/utils/event';
 
 // ---------- Shared mutable test state ----------
@@ -17,6 +19,9 @@ const loadedTargets: Array<string | undefined> = [];
 const controllerEventListeners = new Map<string, EventListener[]>();
 let capturedOnRequestNextPage: (() => Promise<void>) | null = null;
 let capturedOnChapterSelect: ((href: string) => void) | null = null;
+let capturedOnQuiz: (() => void) | null = null;
+let capturedComprehensionOnClosed: (() => void) | null = null;
+let comprehensionOffer: Mock<(words: string[]) => void> | null = null;
 
 // ---------- Mocks ----------
 
@@ -25,12 +30,15 @@ vi.mock('@/app/reader/components/rsvp/RSVPOverlay', () => ({
     ({
       onRequestNextPage,
       onChapterSelect,
+      onQuiz,
     }: {
       onRequestNextPage: () => Promise<void>;
       onChapterSelect: (href: string) => void;
+      onQuiz: () => void;
     }) => {
       capturedOnRequestNextPage = onRequestNextPage;
       capturedOnChapterSelect = onChapterSelect;
+      capturedOnQuiz = onQuiz;
       return null;
     },
   ),
@@ -38,6 +46,27 @@ vi.mock('@/app/reader/components/rsvp/RSVPOverlay', () => ({
 
 vi.mock('@/app/reader/components/rsvp/RSVPStartDialog', () => ({
   default: () => null,
+}));
+
+// Capture the comprehension controller's onClosed callback and register a stub
+// offer fn, so we can drive the quiz-open / quiz-closed flow without real AI.
+vi.mock('@/app/reader/components/comprehension/ComprehensionController', () => ({
+  default: vi.fn(
+    ({
+      onRegisterOffer,
+      onClosed,
+    }: {
+      onRegisterOffer: (fn: (words: string[]) => void) => void;
+      onClosed?: () => void;
+    }) => {
+      capturedComprehensionOnClosed = onClosed ?? null;
+      React.useEffect(() => {
+        comprehensionOffer = vi.fn<(words: string[]) => void>();
+        onRegisterOffer(comprehensionOffer);
+      }, [onRegisterOffer]);
+      return null;
+    },
+  ),
 }));
 
 vi.mock('@/hooks/useTranslation', () => ({
@@ -94,6 +123,8 @@ vi.mock('@/services/rsvp', () => ({
         (controllerEventListeners.get('rsvp-start-choice') ?? []).forEach((h) => h(event));
       }),
       startFromCurrentPosition: vi.fn(),
+      pause: vi.fn(),
+      resume: vi.fn(),
       stop: vi.fn(),
       loadNextPageContent: vi.fn((_retryCount?: number, targetChapterHref?: string) => {
         loadedSections.push(primaryIndex);
@@ -178,6 +209,9 @@ describe('RSVPControl — section advance tracking', () => {
     controllerEventListeners.clear();
     capturedOnRequestNextPage = null;
     capturedOnChapterSelect = null;
+    capturedOnQuiz = null;
+    capturedComprehensionOnClosed = null;
+    comprehensionOffer = null;
     vi.useRealTimers();
   });
 
@@ -243,5 +277,44 @@ describe('RSVPControl — section advance tracking', () => {
 
     expect(mockView.goTo).toHaveBeenCalledWith(href);
     expect(loadedTargets.at(-1)).toBe(href);
+  });
+
+  test('staying in RSVP: taking a chapter-end quiz does not stop RSVP, and resumes when the quiz closes', async () => {
+    render(
+      <RSVPControl bookKey='test-book' gridInsets={{ top: 0, bottom: 0, left: 0, right: 0 }} />,
+    );
+
+    await act(async () => {
+      eventDispatcher.dispatch('rsvp-start', { bookKey: 'test-book' });
+      await new Promise<void>((r) => setTimeout(r, 20));
+    });
+
+    // Grab the controller created by this render (mock results accumulate
+    // across tests, so take the most recent instance).
+    const controller = vi.mocked(RSVPController).mock.results.at(-1)!.value as {
+      stop: ReturnType<typeof vi.fn>;
+      resume: ReturnType<typeof vi.fn>;
+    };
+
+    expect(capturedOnQuiz).not.toBeNull();
+    expect(capturedComprehensionOnClosed).not.toBeNull();
+
+    // User taps the quiz button at a chapter boundary.
+    await act(async () => {
+      capturedOnQuiz!();
+    });
+
+    // The quiz is offered without tearing RSVP down.
+    expect(comprehensionOffer).toHaveBeenCalledTimes(1);
+    expect(controller.stop).not.toHaveBeenCalled();
+
+    // When the quiz closes (declined / finished / dismissed), RSVP resumes
+    // instead of exiting.
+    await act(async () => {
+      capturedComprehensionOnClosed!();
+    });
+
+    expect(controller.resume).toHaveBeenCalledTimes(1);
+    expect(controller.stop).not.toHaveBeenCalled();
   });
 });

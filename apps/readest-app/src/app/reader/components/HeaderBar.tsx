@@ -27,6 +27,7 @@ import QuickActionMenu from './annotator/QuickActionMenu';
 import SidebarToggler from './SidebarToggler';
 import BookmarkToggler from './BookmarkToggler';
 import NotebookToggler from './NotebookToggler';
+import RSVPToggler from './RSVPToggler';
 import SettingsToggler from './SettingsToggler';
 import TranslationToggler from './TranslationToggler';
 import ViewMenu from './ViewMenu';
@@ -281,6 +282,7 @@ const HeaderBar: React.FC<HeaderBarProps> = ({
         </div>
 
         <div className='header-tools-end bg-base-100 z-20 ms-auto flex h-full min-w-max items-center gap-x-4 ps-2 max-[350px]:gap-x-2'>
+          {!isHeaderCompact && <RSVPToggler bookKey={bookKey} />}
           {!isHeaderCompact && <SettingsToggler bookKey={bookKey} />}
           <NotebookToggler bookKey={bookKey} />
           <Dropdown

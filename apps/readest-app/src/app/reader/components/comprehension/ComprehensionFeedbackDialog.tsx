@@ -13,6 +13,9 @@ interface ComprehensionFeedbackDialogProps {
   isLast: boolean;
   onNext: () => void;
   onMore: () => void;
+  onReview: (result: ComprehensionResult) => void;
+  reviewText: string | null;
+  reviewLoading: boolean;
 }
 
 const ComprehensionFeedbackDialog: React.FC<ComprehensionFeedbackDialogProps> = ({
@@ -20,6 +23,9 @@ const ComprehensionFeedbackDialog: React.FC<ComprehensionFeedbackDialogProps> = 
   isLast,
   onNext,
   onMore,
+  onReview,
+  reviewText,
+  reviewLoading,
 }) => {
   const _ = useTranslation();
   const { themeCode, isDarkMode } = useThemeStore();
@@ -69,6 +75,27 @@ const ComprehensionFeedbackDialog: React.FC<ComprehensionFeedbackDialogProps> = 
 
         {/* Explanation */}
         {result.explanation && <p className='mb-5 text-sm opacity-70'>{result.explanation}</p>}
+
+        {/* Ask the AI to double-check a wrong answer (mis-keyed / ambiguous question) */}
+        {!result.isCorrect && (
+          <div className='mb-5'>
+            {reviewText ? (
+              <div className='eink-bordered rounded-xl bg-gray-500/10 px-4 py-3 text-sm'>
+                <p className='mb-1 font-semibold opacity-60'>{_('AI review')}</p>
+                <p className='whitespace-pre-wrap opacity-80'>{reviewText}</p>
+              </div>
+            ) : (
+              <button
+                className='eink-bordered w-full cursor-pointer rounded-xl border border-gray-500/30 bg-transparent px-4 py-2 text-sm font-medium transition-colors hover:bg-gray-500/10 disabled:cursor-default disabled:opacity-50'
+                style={{ color: fgColor }}
+                onClick={() => onReview(result)}
+                disabled={reviewLoading}
+              >
+                {reviewLoading ? _('Reviewing…') : _('Ask AI to review this question')}
+              </button>
+            )}
+          </div>
+        )}
 
         {/* Action buttons */}
         <div className='flex gap-2'>

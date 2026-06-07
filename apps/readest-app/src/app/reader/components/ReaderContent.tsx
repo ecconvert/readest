@@ -58,6 +58,7 @@ const ReaderContent: React.FC<{ ids?: string; settings: SystemSettings }> = ({ i
   } | null>(null);
   const { user } = useAuth();
   const isInitiating = useRef(false);
+  const autoStartedRsvpRef = useRef(false);
   const [loading, setLoading] = useState(false);
   const [errorLoading, setErrorLoading] = useState(false);
 
@@ -69,7 +70,12 @@ const ReaderContent: React.FC<{ ids?: string; settings: SystemSettings }> = ({ i
     isInitiating.current = true;
 
     const pathname = window.location.pathname;
-    const bookIds = ids || searchParams?.get('ids') || pathname.split('/reader/')[1] || '';
+    let bookIds = ids || searchParams?.get('ids') || pathname.split('/reader/')[1] || '';
+    // Deep-link sentinel: `/reader/latest` (used by the speed-read shortcut)
+    // resolves to the most recently opened book.
+    if (bookIds === 'latest') {
+      bookIds = useSettingsStore.getState().settings.lastOpenBooks?.[0] ?? '';
+    }
     const initialIds = bookIds.split(BOOK_IDS_SEPARATOR).filter(Boolean);
     const initialBookKeys = initialIds.map((id) => `${id}-${uniqueId()}`);
     setBookKeys(initialBookKeys);
@@ -133,6 +139,51 @@ const ReaderContent: React.FC<{ ids?: string; settings: SystemSettings }> = ({ i
       eventDispatcher.off('show-share-dialog', handleShareIntent);
     };
   }, [user, _]);
+
+  // Speed-read shortcut: `?rsvp=resume|beginning` auto-starts RSVP on the
+  // primary book once its view has rendered (waits for the first relocate, with
+  // a fallback in case it already fired). RSVPControl handles the autoStart.
+  useEffect(() => {
+    const rsvpParam = searchParams?.get('rsvp');
+    if (rsvpParam !== 'resume' && rsvpParam !== 'beginning') return;
+    if (autoStartedRsvpRef.current) return;
+    const primaryKey = bookKeys?.[0];
+    if (!primaryKey) return;
+
+    let done = false;
+    let detachView: (() => void) | null = null;
+    let fallbackTimer: ReturnType<typeof setTimeout> | null = null;
+
+    const fire = () => {
+      if (done) return;
+      done = true;
+      autoStartedRsvpRef.current = true;
+      eventDispatcher.dispatch('rsvp-start', { bookKey: primaryKey, autoStart: rsvpParam });
+    };
+
+    const attach = (view: NonNullable<ReturnType<typeof getView>>) => {
+      if (done || detachView) return;
+      const onRelocate = () => fire();
+      view.addEventListener('relocate', onRelocate);
+      detachView = () => view.removeEventListener('relocate', onRelocate);
+      fallbackTimer = setTimeout(fire, 1500);
+    };
+
+    const existing = getView(primaryKey);
+    if (existing) attach(existing);
+    const unsubscribe = useReaderStore.subscribe((state) => {
+      const view = state.getView(primaryKey);
+      if (view) attach(view);
+    });
+
+    return () => {
+      done = true;
+      unsubscribe();
+      detachView?.();
+      if (fallbackTimer) clearTimeout(fallbackTimer);
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [bookKeys]);
 
   useEffect(() => {
     if (bookKeys && bookKeys.length > 0) {

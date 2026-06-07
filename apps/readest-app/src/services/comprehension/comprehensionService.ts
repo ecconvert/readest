@@ -2,7 +2,7 @@ import { generateText } from 'ai';
 import { z } from 'zod';
 import { getAIProvider } from '@/services/ai/providers';
 import type { AISettings } from '@/services/ai/types';
-import type { ComprehensionQuestion, ComprehensionSession } from './types';
+import type { ComprehensionQuestion, ComprehensionResult, ComprehensionSession } from './types';
 
 const STORAGE_KEY_PREFIX = 'readest_comprehension_';
 const MAX_HISTORY_PER_BOOK = 20;
@@ -137,6 +137,44 @@ export async function generateQuestions(
     `Could not parse model response: ${lastError instanceof Error ? lastError.message : 'unknown'}` +
       (snippet ? ` — got: "${snippet}…"` : ''),
   );
+}
+
+const OPTION_LABELS = ['A', 'B', 'C', 'D'] as const;
+
+// Ask the model to second-guess one of its own questions. Useful when the
+// generated question looks mis-keyed or ambiguous: the model re-reads the
+// passage and judges whether the marked-correct answer really is correct.
+export async function reviewQuestion(
+  result: ComprehensionResult,
+  words: string[],
+  bookTitle: string,
+  authorName: string,
+  aiSettings: AISettings,
+): Promise<string> {
+  const passage = words.slice(-DEFAULT_BUFFER_SIZE).join(' ');
+  const meta = authorName ? `"${bookTitle}" by ${authorName}` : `"${bookTitle}"`;
+  const optionsBlock = result.options.map((opt, i) => `${OPTION_LABELS[i]}. ${opt}`).join('\n');
+
+  const prompt = `You are a careful exam reviewer checking a reading-comprehension question for correctness. Judge ONLY against the passage below — do not use outside knowledge.
+
+Book: ${meta}
+
+PASSAGE:
+${passage}
+
+QUESTION: ${result.question}
+
+OPTIONS:
+${optionsBlock}
+
+The question was auto-generated and marked option ${OPTION_LABELS[result.correct]} as correct. The reader chose option ${OPTION_LABELS[result.chosen]}.
+
+Decide whether the marked answer (${OPTION_LABELS[result.correct]}) is actually correct according to the passage. In 2-3 sentences: state which option is truly best and cite the passage, and explicitly flag if the question is ambiguous, mis-keyed, or poorly worded. Be direct.`;
+
+  const provider = getAIProvider(aiSettings);
+  const model = provider.getModel();
+  const { text } = await generateText({ model, prompt, temperature: 0.3, maxOutputTokens: 512 });
+  return text.trim();
 }
 
 export function saveSession(bookHash: string, session: ComprehensionSession): void {

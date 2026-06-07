@@ -16,6 +16,8 @@ interface ComprehensionControllerProps {
   aiSettings: AISettings | null;
   /** Parent calls this to hand off words after RSVP stops */
   onRegisterOffer: (offerFn: (words: string[]) => void) => void;
+  /** Fired whenever the comprehension flow closes (declined, error, finished). */
+  onClosed?: () => void;
 }
 
 const ComprehensionController: React.FC<ComprehensionControllerProps> = ({
@@ -24,9 +26,10 @@ const ComprehensionController: React.FC<ComprehensionControllerProps> = ({
   authorName,
   aiSettings,
   onRegisterOffer,
+  onClosed,
 }) => {
   const _ = useTranslation();
-  const { state, offer, startTest, answer, next, more, dismiss } = useComprehension(
+  const { state, offer, startTest, answer, next, more, review, dismiss } = useComprehension(
     bookHash,
     bookTitle,
     authorName,
@@ -37,6 +40,12 @@ const ComprehensionController: React.FC<ComprehensionControllerProps> = ({
   React.useEffect(() => {
     onRegisterOffer(offer);
   }, [offer, onRegisterOffer]);
+
+  // Dismiss the flow and notify the parent so RSVP can resume.
+  const handleClosed = React.useCallback(() => {
+    dismiss();
+    onClosed?.();
+  }, [dismiss, onClosed]);
 
   const currentQuestion = state.questions[state.currentIndex];
   const lastResult = state.results[state.results.length - 1];
@@ -52,7 +61,7 @@ const ComprehensionController: React.FC<ComprehensionControllerProps> = ({
           <p className='mb-4 break-words text-sm opacity-70'>{state.error}</p>
           <button
             className='w-full cursor-pointer rounded-xl border border-gray-500/30 bg-transparent px-4 py-3 font-medium'
-            onClick={dismiss}
+            onClick={handleClosed}
           >
             {_('Close')}
           </button>
@@ -75,7 +84,7 @@ const ComprehensionController: React.FC<ComprehensionControllerProps> = ({
   }
 
   if (state.phase === 'offering') {
-    return <ComprehensionOfferDialog onAccept={() => void startTest()} onDecline={dismiss} />;
+    return <ComprehensionOfferDialog onAccept={() => void startTest()} onDecline={handleClosed} />;
   }
 
   if (state.phase === 'question' && currentQuestion) {
@@ -96,6 +105,9 @@ const ComprehensionController: React.FC<ComprehensionControllerProps> = ({
         isLast={isLastQuestion}
         onNext={next}
         onMore={more}
+        onReview={review}
+        reviewText={state.reviewText}
+        reviewLoading={state.reviewLoading}
       />
     );
   }
@@ -106,7 +118,7 @@ const ComprehensionController: React.FC<ComprehensionControllerProps> = ({
         results={state.results}
         lastPrompt={state.lastPrompt}
         onMore={more}
-        onClose={dismiss}
+        onClose={handleClosed}
       />
     );
   }
