@@ -681,6 +681,23 @@ input[type='range'].slider-input {
   }
 }
 
+@keyframes rsvp-quiz-flash-pulse {
+  0%,
+  100% {
+    opacity: 1;
+    transform: scale(1);
+  }
+
+  50% {
+    opacity: 0.4;
+    transform: scale(1.18);
+  }
+}
+
+.rsvp-quiz-flash {
+  animation: rsvp-quiz-flash-pulse 1s ease-in-out infinite;
+}
+
 .settings-highlight {
   animation: settings-highlight-pulse 0.5s ease-in-out 2;
   border-radius: 8px;

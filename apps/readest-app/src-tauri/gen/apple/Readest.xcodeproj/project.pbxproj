@@ -56,12 +56,14 @@
 		1A5492F8B4749D670A93DE66 /* clip_url.rs */ = {isa = PBXFileReference; path = clip_url.rs; sourceTree = "<group>"; };
 		1C29EFE86C85351F81C99F2A /* Metal.framework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.framework; name = Metal.framework; path = System/Library/Frameworks/Metal.framework; sourceTree = SDKROOT; };
 		1CF94262BF7499D2AD8B627D /* main.mm */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.cpp.objcpp; path = main.mm; sourceTree = "<group>"; };
+		1F45B5B458F63D98B6113A19 /* Info.plist */ = {isa = PBXFileReference; lastKnownFileType = text.plist; path = Info.plist; sourceTree = "<group>"; };
 		27B7FEAE989ABFF6C8FF0F77 /* Info.plist */ = {isa = PBXFileReference; lastKnownFileType = text.plist; path = Info.plist; sourceTree = "<group>"; };
 		282EE616A1F2B81C6121C9B6 /* transfer_file.rs */ = {isa = PBXFileReference; path = transfer_file.rs; sourceTree = "<group>"; };
 		2E226C87AD0606FFF9DDEE11 /* dir_scanner.rs */ = {isa = PBXFileReference; path = dir_scanner.rs; sourceTree = "<group>"; };
 		2F0000D58F392BC2F808417D /* Assets.xcassets */ = {isa = PBXFileReference; lastKnownFileType = folder.assetcatalog; path = Assets.xcassets; sourceTree = "<group>"; };
 		30D8E7F6023C1DF41F8BD47C /* LaunchScreen.storyboard */ = {isa = PBXFileReference; lastKnownFileType = file.storyboard; path = LaunchScreen.storyboard; sourceTree = "<group>"; };
 		32229C1C4618F3DE22D7DA83 /* bindings.h */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.h; path = bindings.h; sourceTree = "<group>"; };
+		3C76FEE05802FC0886EA9BFA /* window_state.rs */ = {isa = PBXFileReference; path = window_state.rs; sourceTree = "<group>"; };
 		40409827389F82307433878B /* assets */ = {isa = PBXFileReference; lastKnownFileType = folder; path = assets; sourceTree = SOURCE_ROOT; };
 		4924DDD171577C52C0C5809E /* ShareExtension.entitlements */ = {isa = PBXFileReference; lastKnownFileType = text.plist.entitlements; path = ShareExtension.entitlements; sourceTree = "<group>"; };
 		4B62E5ED5797D06981F30B6F /* UIKit.framework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.framework; name = UIKit.framework; path = System/Library/Frameworks/UIKit.framework; sourceTree = SDKROOT; };
@@ -72,6 +74,7 @@
 		661E6D88481643D5928A8853 /* discord_rpc.rs */ = {isa = PBXFileReference; path = discord_rpc.rs; sourceTree = "<group>"; };
 		7DADD61846736B0E638BF012 /* Readest_iOS.entitlements */ = {isa = PBXFileReference; lastKnownFileType = text.plist.entitlements; path = Readest_iOS.entitlements; sourceTree = "<group>"; };
 		983AD7B7F8D8B9BF527EF05D /* traffic_light.rs */ = {isa = PBXFileReference; path = traffic_light.rs; sourceTree = "<group>"; };
+		9AFF95DFCB4CA01100B8C075 /* libapp.a */ = {isa = PBXFileReference; lastKnownFileType = archive.ar; path = libapp.a; sourceTree = "<group>"; };
 		9B22460180952B7C3F11DE9D /* main.rs */ = {isa = PBXFileReference; path = main.rs; sourceTree = "<group>"; };
 		A02C074BB1C537B8020DB593 /* system_dictionary.rs */ = {isa = PBXFileReference; path = system_dictionary.rs; sourceTree = "<group>"; };
 		A7318D4877A991A1DAB79861 /* lib.rs */ = {isa = PBXFileReference; path = lib.rs; sourceTree = "<group>"; };
@@ -122,6 +125,14 @@
 			path = Sources;
 			sourceTree = "<group>";
 		};
+		245AF1EF44095ADF8D1AE58A /* debug */ = {
+			isa = PBXGroup;
+			children = (
+				9AFF95DFCB4CA01100B8C075 /* libapp.a */,
+			);
+			path = debug;
+			sourceTree = "<group>";
+		};
 		2D6F041DFA6B062224902B98 /* Products */ = {
 			isa = PBXGroup;
 			children = (
@@ -140,6 +151,14 @@
 			path = android;
 			sourceTree = "<group>";
 		};
+		2FB21E2BD03D75C169D20A5E /* arm64 */ = {
+			isa = PBXGroup;
+			children = (
+				245AF1EF44095ADF8D1AE58A /* debug */,
+			);
+			path = arm64;
+			sourceTree = "<group>";
+		};
 		3ABE44D21683D1A3A9053FF4 /* macos */ = {
 			isa = PBXGroup;
 			children = (
@@ -156,6 +175,7 @@
 		60924896DC53876DC5E00FC4 /* Externals */ = {
 			isa = PBXGroup;
 			children = (
+				2FB21E2BD03D75C169D20A5E /* arm64 */,
 			);
 			path = Externals;
 			sourceTree = "<group>";
@@ -198,6 +218,7 @@
 		ADF310BD2F14DA462EF79E53 /* Readest_iOS */ = {
 			isa = PBXGroup;
 			children = (
+				1F45B5B458F63D98B6113A19 /* Info.plist */,
 				7DADD61846736B0E638BF012 /* Readest_iOS.entitlements */,
 			);
 			path = Readest_iOS;
@@ -235,6 +256,7 @@
 				A7318D4877A991A1DAB79861 /* lib.rs */,
 				9B22460180952B7C3F11DE9D /* main.rs */,
 				282EE616A1F2B81C6121C9B6 /* transfer_file.rs */,
+				3C76FEE05802FC0886EA9BFA /* window_state.rs */,
 				2D86805A2877EA3ADDDC28F8 /* android */,
 				3ABE44D21683D1A3A9053FF4 /* macos */,
 				C41C744CD45746D97A7E1DC3 /* windows */,
@@ -243,14 +265,7 @@
 			path = ../../src;
 			sourceTree = "<group>";
 		};
-		"TEMP_4DCF4303-D43B-49A2-841D-FA7AC0DF4CA6" /* arm64 */ = {
-			isa = PBXGroup;
-			children = (
-			);
-			path = arm64;
-			sourceTree = "<group>";
-		};
-		"TEMP_E02BFCED-1A1D-42A7-9629-AB8D373B6ACC" /* x86_64 */ = {
+		"TEMP_5F6AB9F3-F6F1-453D-8EE7-19EC14BAC1BB" /* x86_64 */ = {
 			isa = PBXGroup;
 			children = (
 			);
@@ -309,10 +324,10 @@
 				LastUpgradeCheck = 1430;
 				TargetAttributes = {
 					004FF73D61EDB0623C953EBF = {
-						DevelopmentTeam = J5W48D69VR;
+						DevelopmentTeam = XP274S4V78;
 					};
 					44B76E0EA5B592540156EFE5 = {
-						DevelopmentTeam = J5W48D69VR;
+						DevelopmentTeam = XP274S4V78;
 					};
 				};
 			};
@@ -369,7 +384,7 @@
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 			shellPath = /bin/sh;
-			shellScript = "pnpm tauri ios xcode-script -v --platform ${PLATFORM_DISPLAY_NAME:?} --sdk-root ${SDKROOT:?} --framework-search-paths \"${FRAMEWORK_SEARCH_PATHS:?}\" --header-search-paths \"${HEADER_SEARCH_PATHS:?}\" --gcc-preprocessor-definitions \"${GCC_PREPROCESSOR_DEFINITIONS:-}\" --configuration ${CONFIGURATION:?} ${FORCE_COLOR} ${ARCHS:?}";
+			shellScript = "export PATH=\"/opt/homebrew/bin:$HOME/.cargo/bin:$PATH\"; pnpm tauri ios xcode-script -v --platform ${PLATFORM_DISPLAY_NAME:?} --sdk-root ${SDKROOT:?} --framework-search-paths \"${FRAMEWORK_SEARCH_PATHS:?}\" --header-search-paths \"${HEADER_SEARCH_PATHS:?}\" --gcc-preprocessor-definitions \"${GCC_PREPROCESSOR_DEFINITIONS:-}\" --configuration ${CONFIGURATION:?} ${FORCE_COLOR} ${ARCHS:?}";
 		};
 /* End PBXShellScriptBuildPhase section */
 
@@ -409,9 +424,9 @@
 				ARCHS = (
 					arm64,
 				);
-				CODE_SIGN_ALLOW_ENTITLEMENTS_MODIFICATION = YES;
+				CODE_SIGN_ALLOW_ENTITLEMENTS_MODIFICATION = NO;
 				CODE_SIGN_ENTITLEMENTS = ShareExtension/ShareExtension.entitlements;
-				DEVELOPMENT_TEAM = J5W48D69VR;
+				DEVELOPMENT_TEAM = XP274S4V78;
 				ENABLE_BITCODE = NO;
 				"EXCLUDED_ARCHS[sdk=iphoneos*]" = x86_64;
 				INFOPLIST_FILE = ShareExtension/Info.plist;
@@ -421,7 +436,7 @@
 					"@executable_path/Frameworks",
 					"@executable_path/../../Frameworks",
 				);
-				PRODUCT_BUNDLE_IDENTIFIER = com.bilingify.readest.ShareExtension;
+				PRODUCT_BUNDLE_IDENTIFIER = com.ecconvert.readest.ShareExtension;
 				PRODUCT_NAME = ShareExtension;
 				SDKROOT = iphoneos;
 				SKIP_INSTALL = YES;
@@ -441,7 +456,7 @@
 				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
 				CODE_SIGN_ENTITLEMENTS = Readest_iOS/Readest_iOS.entitlements;
 				CODE_SIGN_IDENTITY = "iPhone Developer";
-				DEVELOPMENT_TEAM = J5W48D69VR;
+				DEVELOPMENT_TEAM = "XP274S4V78";
 				EMBEDDED_CONTENT_CONTAINS_SWIFT_CODE = YES;
 				ENABLE_BITCODE = NO;
 				"EXCLUDED_ARCHS[sdk=iphoneos*]" = x86_64;
@@ -456,8 +471,8 @@
 				);
 				"LIBRARY_SEARCH_PATHS[arch=arm64]" = "$(inherited) $(PROJECT_DIR)/Externals/arm64/$(CONFIGURATION) $(SDKROOT)/usr/lib/swift $(TOOLCHAIN_DIR)/usr/lib/swift/$(PLATFORM_NAME) $(TOOLCHAIN_DIR)/usr/lib/swift-5.0/$(PLATFORM_NAME)";
 				"LIBRARY_SEARCH_PATHS[arch=x86_64]" = "$(inherited) $(PROJECT_DIR)/Externals/x86_64/$(CONFIGURATION) $(SDKROOT)/usr/lib/swift $(TOOLCHAIN_DIR)/usr/lib/swift/$(PLATFORM_NAME) $(TOOLCHAIN_DIR)/usr/lib/swift-5.0/$(PLATFORM_NAME)";
-				PRODUCT_BUNDLE_IDENTIFIER = com.bilingify.readest;
-				PRODUCT_NAME = Readest;
+				PRODUCT_BUNDLE_IDENTIFIER = com.ecconvert.readest;
+				PRODUCT_NAME = "Readest";
 				SDKROOT = iphoneos;
 				TARGETED_DEVICE_FAMILY = "1,2";
 				VALID_ARCHS = arm64;
@@ -537,7 +552,7 @@
 				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
 				CODE_SIGN_ENTITLEMENTS = Readest_iOS/Readest_iOS.entitlements;
 				CODE_SIGN_IDENTITY = "iPhone Developer";
-				DEVELOPMENT_TEAM = J5W48D69VR;
+				DEVELOPMENT_TEAM = "XP274S4V78";
 				EMBEDDED_CONTENT_CONTAINS_SWIFT_CODE = YES;
 				ENABLE_BITCODE = NO;
 				"EXCLUDED_ARCHS[sdk=iphoneos*]" = x86_64;
@@ -552,8 +567,8 @@
 				);
 				"LIBRARY_SEARCH_PATHS[arch=arm64]" = "$(inherited) $(PROJECT_DIR)/Externals/arm64/$(CONFIGURATION) $(SDKROOT)/usr/lib/swift $(TOOLCHAIN_DIR)/usr/lib/swift/$(PLATFORM_NAME) $(TOOLCHAIN_DIR)/usr/lib/swift-5.0/$(PLATFORM_NAME)";
 				"LIBRARY_SEARCH_PATHS[arch=x86_64]" = "$(inherited) $(PROJECT_DIR)/Externals/x86_64/$(CONFIGURATION) $(SDKROOT)/usr/lib/swift $(TOOLCHAIN_DIR)/usr/lib/swift/$(PLATFORM_NAME) $(TOOLCHAIN_DIR)/usr/lib/swift-5.0/$(PLATFORM_NAME)";
-				PRODUCT_BUNDLE_IDENTIFIER = com.bilingify.readest;
-				PRODUCT_NAME = Readest;
+				PRODUCT_BUNDLE_IDENTIFIER = com.ecconvert.readest;
+				PRODUCT_NAME = "Readest";
 				SDKROOT = iphoneos;
 				TARGETED_DEVICE_FAMILY = "1,2";
 				VALID_ARCHS = arm64;
@@ -623,9 +638,9 @@
 				ARCHS = (
 					arm64,
 				);
-				CODE_SIGN_ALLOW_ENTITLEMENTS_MODIFICATION = YES;
+				CODE_SIGN_ALLOW_ENTITLEMENTS_MODIFICATION = NO;
 				CODE_SIGN_ENTITLEMENTS = ShareExtension/ShareExtension.entitlements;
-				DEVELOPMENT_TEAM = J5W48D69VR;
+				DEVELOPMENT_TEAM = XP274S4V78;
 				ENABLE_BITCODE = NO;
 				"EXCLUDED_ARCHS[sdk=iphoneos*]" = x86_64;
 				INFOPLIST_FILE = ShareExtension/Info.plist;
@@ -635,7 +650,7 @@
 					"@executable_path/Frameworks",
 					"@executable_path/../../Frameworks",
 				);
-				PRODUCT_BUNDLE_IDENTIFIER = com.bilingify.readest.ShareExtension;
+				PRODUCT_BUNDLE_IDENTIFIER = com.ecconvert.readest.ShareExtension;
 				PRODUCT_NAME = ShareExtension;
 				SDKROOT = iphoneos;
 				SKIP_INSTALL = YES;

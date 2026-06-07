@@ -1,5 +1,5 @@
 import clsx from 'clsx';
-import React, { useState, useEffect, useCallback, useRef } from 'react';
+import React, { useState, useEffect, useCallback, useRef, useMemo } from 'react';
 import { PiCheckCircle, PiWarningCircle, PiArrowsClockwise, PiSpinner } from 'react-icons/pi';
 
 import { useTranslation } from '@/hooks/useTranslation';
@@ -8,6 +8,7 @@ import { useEnv } from '@/context/EnvContext';
 import { getAIProvider } from '@/services/ai/providers';
 import {
   fetchOpenRouterModels,
+  fetchOpenRouterModelEndpoints,
   type OpenRouterModelInfo,
 } from '@/services/ai/providers/OpenRouterProvider';
 import { DEFAULT_AI_SETTINGS, GATEWAY_MODELS, MODEL_PRICING } from '@/services/ai/constants';
@@ -20,6 +21,23 @@ type ConnectionStatus = 'idle' | 'testing' | 'success' | 'error';
 type CustomModelStatus = 'idle' | 'validating' | 'valid' | 'invalid';
 
 const CUSTOM_MODEL_VALUE = '__custom__';
+
+// OpenRouter prices prompt tokens as a USD-per-token string; convert to USD
+// per 1M tokens. Returns null when pricing is missing/unparseable.
+function modelPromptPricePerM(m: OpenRouterModelInfo): number | null {
+  const p = m.pricing?.prompt;
+  if (p == null) return null;
+  const n = Number(p);
+  return Number.isFinite(n) ? n * 1_000_000 : null;
+}
+
+function modelOptionLabel(m: OpenRouterModelInfo): string {
+  const base = m.name ? `${m.name} (${m.id})` : m.id;
+  const price = modelPromptPricePerM(m);
+  if (price == null) return base;
+  if (price === 0) return `${base} — Free`;
+  return `${base} — $${price.toFixed(2)}/1M`;
+}
 
 interface ModelOption {
   id: string;
@@ -96,9 +114,41 @@ const AIPanel: React.FC = () => {
   const [openrouterEmbeddingModel, setOpenrouterEmbeddingModel] = useState(
     aiSettings.openrouterEmbeddingModel ?? '',
   );
+  const [openrouterSort, setOpenrouterSort] = useState<'' | 'price' | 'throughput' | 'latency'>(
+    aiSettings.openrouterSort ?? '',
+  );
+  const [openrouterMaxPrice, setOpenrouterMaxPrice] = useState(
+    aiSettings.openrouterMaxPrice != null ? String(aiSettings.openrouterMaxPrice) : '',
+  );
   const [openrouterModels, setOpenrouterModels] = useState<OpenRouterModelInfo[]>([]);
   const [openrouterFetchingModels, setOpenrouterFetchingModels] = useState(false);
   const [openrouterModelsError, setOpenrouterModelsError] = useState('');
+
+  // Model picker list: filtered by the Max price cap (if set) and sorted
+  // cheapest-first so the budget options surface at the top.
+  const visibleOpenrouterModels = useMemo(() => {
+    const max = openrouterMaxPrice === '' ? null : Number(openrouterMaxPrice);
+    const capActive = max != null && Number.isFinite(max) && max > 0;
+    const list = capActive
+      ? openrouterModels.filter((m) => {
+          const price = modelPromptPricePerM(m);
+          return price == null || price <= max;
+        })
+      : openrouterModels;
+    return [...list].sort(
+      (a, b) => (modelPromptPricePerM(a) ?? Infinity) - (modelPromptPricePerM(b) ?? Infinity),
+    );
+  }, [openrouterModels, openrouterMaxPrice]);
+
+  // Speed stats for the currently-selected OpenRouter model (best provider
+  // within the price cap). null = not loaded; 'loading'/'unavailable' states
+  // tracked separately.
+  const [modelSpeed, setModelSpeed] = useState<{
+    throughput: number | null;
+    latencyMs: number | null;
+    providers: number;
+  } | null>(null);
+  const [modelSpeedLoading, setModelSpeedLoading] = useState(false);
 
   const savedCustomModel = aiSettings.aiGatewayCustomModel ?? '';
   const savedModel = aiSettings.aiGatewayModel ?? DEFAULT_AI_SETTINGS.aiGatewayModel ?? '';
@@ -120,6 +170,26 @@ const AIPanel: React.FC = () => {
   const [connectionStatus, setConnectionStatus] = useState<ConnectionStatus>('idle');
   const [errorMessage, setErrorMessage] = useState('');
 
+  const defaultComprehension = DEFAULT_AI_SETTINGS.comprehension!;
+  const [baseQuestions, setBaseQuestions] = useState(
+    aiSettings.comprehension?.baseQuestions ?? defaultComprehension.baseQuestions,
+  );
+  const [wordsPerExtra, setWordsPerExtra] = useState(
+    aiSettings.comprehension?.wordsPerExtraQuestion ?? defaultComprehension.wordsPerExtraQuestion,
+  );
+  const [extraPerInterval, setExtraPerInterval] = useState(
+    aiSettings.comprehension?.extraQuestionsPerInterval ??
+      defaultComprehension.extraQuestionsPerInterval,
+  );
+  const [pauseAtChapterEnd, setPauseAtChapterEnd] = useState(
+    aiSettings.comprehension?.pauseAtChapterEnd ?? defaultComprehension.pauseAtChapterEnd ?? true,
+  );
+  // ---- Groq provider state ----
+  const [groqKey, setGroqKey] = useState(aiSettings.groqApiKey ?? '');
+  const [groqModel, setGroqModel] = useState(
+    aiSettings.groqModel ?? DEFAULT_AI_SETTINGS.groqModel ?? '',
+  );
+
   const isMounted = useRef(false);
   const modelOptions = getModelOptions();
 
@@ -140,6 +210,15 @@ const AIPanel: React.FC = () => {
       await saveSettings(envConfig, newSettings);
     },
     [envConfig, setSettings, saveSettings],
+  );
+
+  const saveComprehension = useCallback(
+    (patch: Partial<NonNullable<AISettings['comprehension']>>) => {
+      const base =
+        settingsRef.current?.aiSettings?.comprehension ?? DEFAULT_AI_SETTINGS.comprehension!;
+      void saveAiSetting('comprehension', { ...base, ...patch });
+    },
+    [saveAiSetting],
   );
 
   const fetchOllamaModels = useCallback(async () => {
@@ -288,6 +367,77 @@ const AIPanel: React.FC = () => {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [openrouterEmbeddingModel]);
 
+  useEffect(() => {
+    if (!isMounted.current) return;
+    const next = openrouterSort === '' ? undefined : openrouterSort;
+    if (next !== aiSettings.openrouterSort) {
+      saveAiSetting('openrouterSort', next);
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [openrouterSort]);
+
+  useEffect(() => {
+    if (!isMounted.current) return;
+    const parsed = openrouterMaxPrice === '' ? undefined : Number(openrouterMaxPrice);
+    const next = parsed != null && Number.isFinite(parsed) && parsed > 0 ? parsed : undefined;
+    if (next !== aiSettings.openrouterMaxPrice) {
+      saveAiSetting('openrouterMaxPrice', next);
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [openrouterMaxPrice]);
+
+  // ---- Groq save effects ----
+  useEffect(() => {
+    if (!isMounted.current) return;
+    if (groqKey !== (aiSettings.groqApiKey ?? '')) {
+      saveAiSetting('groqApiKey', groqKey);
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [groqKey]);
+
+  useEffect(() => {
+    if (!isMounted.current) return;
+    if (groqModel !== (aiSettings.groqModel ?? '')) {
+      saveAiSetting('groqModel', groqModel);
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [groqModel]);
+
+  // Fetch speed stats for the selected OpenRouter model. Best provider within
+  // the price cap = highest median throughput; latency = lowest median TTFT.
+  useEffect(() => {
+    if (provider !== 'openrouter' || !openrouterUrl.includes('openrouter.ai')) {
+      setModelSpeed(null);
+      return;
+    }
+    if (!openrouterModel || !openrouterKey) {
+      setModelSpeed(null);
+      return;
+    }
+    const controller = new AbortController();
+    setModelSpeedLoading(true);
+    fetchOpenRouterModelEndpoints(openrouterUrl, openrouterKey, openrouterModel, controller.signal)
+      .then((endpoints) => {
+        const max = openrouterMaxPrice === '' ? null : Number(openrouterMaxPrice);
+        const capActive = max != null && Number.isFinite(max) && max > 0;
+        const eligible = capActive
+          ? endpoints.filter((e) => e.pricePerM == null || e.pricePerM <= max)
+          : endpoints;
+        const withTput = eligible.filter((e) => e.throughput != null);
+        const withLat = eligible.filter((e) => e.latencyMs != null);
+        setModelSpeed({
+          throughput: withTput.length
+            ? Math.max(...withTput.map((e) => e.throughput as number))
+            : null,
+          latencyMs: withLat.length ? Math.min(...withLat.map((e) => e.latencyMs as number)) : null,
+          providers: eligible.length,
+        });
+      })
+      .catch(() => setModelSpeed(null))
+      .finally(() => setModelSpeedLoading(false));
+    return () => controller.abort();
+  }, [provider, openrouterModel, openrouterKey, openrouterUrl, openrouterMaxPrice]);
+
   // Get the effective model ID to use (either selected or custom)
   const getEffectiveModelId = useCallback(() => {
     if (selectedModel === CUSTOM_MODEL_VALUE && customModelStatus === 'valid') {
@@ -382,6 +532,8 @@ const AIPanel: React.FC = () => {
         openrouterBaseUrl: openrouterUrl,
         openrouterModel,
         openrouterEmbeddingModel,
+        groqApiKey: groqKey,
+        groqModel,
       };
       const aiProvider = getAIProvider(testSettings);
       const isHealthy = await aiProvider.healthCheck();
@@ -441,6 +593,16 @@ const AIPanel: React.FC = () => {
             className='radio'
             checked={provider === 'openrouter'}
             onChange={() => setProvider('openrouter')}
+            disabled={!enabled}
+          />
+        </SettingsRow>
+        <SettingsRow label={_('Groq')} asLabel>
+          <input
+            type='radio'
+            name='ai-provider'
+            className='radio'
+            checked={provider === 'groq'}
+            onChange={() => setProvider('groq')}
             disabled={!enabled}
           />
         </SettingsRow>
@@ -674,9 +836,9 @@ const AIPanel: React.FC = () => {
                 onChange={(e) => setOpenrouterModel(e.target.value)}
                 disabled={!enabled}
               >
-                {openrouterModels.map((m) => (
+                {visibleOpenrouterModels.map((m) => (
                   <option key={m.id} value={m.id}>
-                    {m.name ? `${m.name} (${m.id})` : m.id}
+                    {modelOptionLabel(m)}
                   </option>
                 ))}
               </select>
@@ -698,6 +860,30 @@ const AIPanel: React.FC = () => {
             {!openrouterModelsError && !openrouterKey && (
               <span className='text-base-content/60 text-xs'>
                 {_('Enter an API key, then refresh to load available models.')}
+              </span>
+            )}
+            {openrouterModels.length > 0 && (
+              <span className='text-base-content/60 text-xs'>
+                {openrouterMaxPrice
+                  ? _('Sorted cheapest first; hiding models over your max price.')
+                  : _('Sorted cheapest first. Set a max price below to hide pricier models.')}
+              </span>
+            )}
+            {openrouterModel && openrouterKey && openrouterUrl.includes('openrouter.ai') && (
+              <span className='text-base-content/70 text-xs'>
+                {modelSpeedLoading
+                  ? _('Checking provider speed…')
+                  : modelSpeed && (modelSpeed.throughput || modelSpeed.latencyMs)
+                    ? _('Speed: {{tput}} · {{lat}} · {{n}} providers', {
+                        tput: modelSpeed.throughput
+                          ? `~${Math.round(modelSpeed.throughput)} tok/s`
+                          : _('n/a'),
+                        lat: modelSpeed.latencyMs
+                          ? `${(modelSpeed.latencyMs / 1000).toFixed(2)}s to first token`
+                          : _('n/a latency'),
+                        n: modelSpeed.providers,
+                      })
+                    : _('Speed data unavailable for this model.')}
               </span>
             )}
           </div>
@@ -738,6 +924,90 @@ const AIPanel: React.FC = () => {
                 'Optional. Leave blank if your endpoint does not support embeddings — chat will still work but RAG features will be unavailable.',
               )}
             </span>
+          </div>
+
+          {/* OpenRouter provider routing — only meaningful for openrouter.ai. */}
+          {openrouterUrl.includes('openrouter.ai') && (
+            <>
+              <div className='flex flex-col gap-2 pe-4 py-3'>
+                <SettingLabel>{_('Route by')}</SettingLabel>
+                <select
+                  className='select select-bordered select-sm bg-base-100 text-base-content w-full'
+                  value={openrouterSort}
+                  onChange={(e) =>
+                    setOpenrouterSort(e.target.value as '' | 'price' | 'throughput' | 'latency')
+                  }
+                  disabled={!enabled}
+                >
+                  <option value=''>{_('Default (balanced)')}</option>
+                  <option value='throughput'>{_('Throughput (fastest)')}</option>
+                  <option value='price'>{_('Price (cheapest)')}</option>
+                  <option value='latency'>{_('Latency (lowest)')}</option>
+                </select>
+              </div>
+              <div className='flex flex-col gap-2 pe-4 py-3'>
+                <SettingLabel>{_('Max price ($ / 1M tokens)')}</SettingLabel>
+                <input
+                  type='number'
+                  className='input input-bordered input-sm w-full'
+                  value={openrouterMaxPrice}
+                  min={0}
+                  step={0.01}
+                  placeholder='0.10'
+                  disabled={!enabled}
+                  onChange={(e) => setOpenrouterMaxPrice(e.target.value)}
+                />
+                <span className='text-base-content/60 text-xs'>
+                  {_(
+                    'Only route to providers at or under this price. Combine with Route by → Throughput to get the fastest provider within budget. Leave blank for no cap.',
+                  )}
+                </span>
+              </div>
+            </>
+          )}
+        </BoxedList>
+      )}
+
+      {provider === 'groq' && (
+        <BoxedList
+          title={_('Groq Configuration')}
+          description={_(
+            'Groq runs open models on fast hardware via an OpenAI-compatible API. Free tier has a low tokens/minute limit — for long passages, switch the provider to OpenAI Compatible with a higher-limit model.',
+          )}
+          className={disabledSection}
+        >
+          <div className='flex flex-col gap-2 pe-4 py-3'>
+            <div className='flex w-full items-center justify-between'>
+              <SettingLabel>{_('API Key')}</SettingLabel>
+              <a
+                href='https://console.groq.com/keys'
+                target='_blank'
+                rel='noopener noreferrer'
+                className={clsx('link text-xs', !enabled && 'pointer-events-none')}
+              >
+                {_('Get Key')}
+              </a>
+            </div>
+            <input
+              type='password'
+              className='input input-bordered input-sm w-full'
+              value={groqKey}
+              disabled={!enabled}
+              autoComplete='off'
+              placeholder='gsk_...'
+              onChange={(e) => setGroqKey(e.target.value)}
+            />
+          </div>
+          <div className='flex flex-col gap-2 pe-4 py-3'>
+            <SettingLabel>{_('Model')}</SettingLabel>
+            <input
+              type='text'
+              className='input input-bordered input-sm w-full'
+              value={groqModel}
+              disabled={!enabled}
+              placeholder='llama-3.3-70b-versatile'
+              onChange={(e) => setGroqModel(e.target.value)}
+            />
           </div>
         </BoxedList>
       )}
@@ -807,6 +1077,68 @@ const AIPanel: React.FC = () => {
             {_('Download')}
           </button>
         </div>
+      </BoxedList>
+
+      <BoxedList title={_('Comprehension Quiz')} className={disabledSection}>
+        <SettingsRow label={_('Base questions')}>
+          <input
+            type='number'
+            className='input input-bordered input-sm w-20 text-center'
+            min={1}
+            max={20}
+            value={baseQuestions}
+            disabled={!enabled}
+            onChange={(e) => {
+              const v = Math.max(1, Math.min(20, Number(e.target.value)));
+              setBaseQuestions(v);
+              saveComprehension({ baseQuestions: v });
+            }}
+          />
+        </SettingsRow>
+        <SettingsRow label={_('Words per extra question')}>
+          <input
+            type='number'
+            className='input input-bordered input-sm w-20 text-center'
+            min={10}
+            max={10000}
+            step={10}
+            value={wordsPerExtra}
+            disabled={!enabled}
+            onChange={(e) => {
+              const v = Math.max(10, Number(e.target.value));
+              setWordsPerExtra(v);
+              saveComprehension({ wordsPerExtraQuestion: v });
+            }}
+          />
+        </SettingsRow>
+        <SettingsRow label={_('Extra questions per interval')}>
+          <input
+            type='number'
+            className='input input-bordered input-sm w-20 text-center'
+            min={1}
+            max={5}
+            value={extraPerInterval}
+            disabled={!enabled}
+            onChange={(e) => {
+              const v = Math.max(1, Math.min(5, Number(e.target.value)));
+              setExtraPerInterval(v);
+              saveComprehension({ extraQuestionsPerInterval: v });
+            }}
+          />
+        </SettingsRow>
+        <SettingsSwitchRow
+          label={_('Pause at chapter end')}
+          description={_(
+            'When reading with RSVP, pause at each chapter boundary and flash the quiz button instead of continuing into the next chapter.',
+          )}
+          checked={pauseAtChapterEnd}
+          disabled={!enabled}
+          onChange={() => {
+            const next = !pauseAtChapterEnd;
+            setPauseAtChapterEnd(next);
+            saveComprehension({ pauseAtChapterEnd: next });
+          }}
+        />
       </BoxedList>
 
       <BoxedList title={_('Connection')} className={disabledSection}>

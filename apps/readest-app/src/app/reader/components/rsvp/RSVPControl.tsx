@@ -122,6 +122,14 @@ const RSVPControl: React.FC<RSVPControlProps> = ({ bookKey, gridInsets }) => {
   const [isActive, setIsActive] = useState(false);
   const [showStartDialog, setShowStartDialog] = useState(false);
   const [startChoice, setStartChoice] = useState<RsvpStartChoice | null>(null);
+  // When RSVP pauses at a chapter boundary, flash the quiz button.
+  const [quizFlash, setQuizFlash] = useState(false);
+  // Section index we've already shown the chapter-end quiz prompt for, so a
+  // second "play" past the boundary advances instead of re-prompting.
+  const quizPromptSectionRef = useRef<number | null>(null);
+  // Words of the chapter just finished at an intra-section chapter boundary,
+  // so the quiz is scoped to that chapter rather than the whole spine section.
+  const pendingQuizWordsRef = useRef<string[] | null>(null);
   const controllerRef = useRef<RSVPController | null>(null);
   const comprehensionOfferRef = useRef<((words: string[]) => void) | null>(null);
   const tempHighlightRef = useRef<BookNote | null>(null);
@@ -222,6 +230,9 @@ const RSVPControl: React.FC<RSVPControlProps> = ({ bookKey, gridInsets }) => {
       }
 
       const controller = controllerRef.current;
+      // Provide the TOC so word extraction can split multi-chapter spine
+      // sections (e.g. 1984's Parts) into real per-chapter ranges.
+      controller.setToc(bookData.bookDoc?.toc);
 
       // For Chinese books, preload jieba-wasm so that the synchronous word
       // extractor can use it. Done before requestStart() so the loader has
@@ -414,8 +425,11 @@ const RSVPControl: React.FC<RSVPControlProps> = ({ bookKey, gridInsets }) => {
       controller.stop();
       controller.removeEventListener('rsvp-stop', handleRsvpStop);
 
-      // Offer comprehension test after RSVP stops
-      const words = controller.currentState.words.map((w) => w.text);
+      // Offer comprehension test after RSVP stops — scope to the chapter being
+      // read (correct for multi-chapter spine sections), or the chapter just
+      // finished if we stopped at a chapter boundary.
+      const words = pendingQuizWordsRef.current ?? controller.getCurrentChapterWords();
+      pendingQuizWordsRef.current = null;
       comprehensionOfferRef.current?.(words);
     } else if (controller) {
       controller.stop();
@@ -437,6 +451,9 @@ const RSVPControl: React.FC<RSVPControlProps> = ({ bookKey, gridInsets }) => {
 
     setIsActive(false);
     setShowStartDialog(false);
+    setQuizFlash(false);
+    quizPromptSectionRef.current = null;
+    pendingQuizWordsRef.current = null;
   }, [
     bookKey,
     envConfig,
@@ -452,32 +469,79 @@ const RSVPControl: React.FC<RSVPControlProps> = ({ bookKey, gridInsets }) => {
   const handleQuiz = useCallback(() => {
     const controller = controllerRef.current;
     if (!controller) return;
-    const words = controller.currentState.words.map((w) => w.text);
+    setQuizFlash(false);
+    // Prefer the chapter captured at a chapter-end boundary; otherwise scope
+    // the quiz to the chapter currently being read (handles multi-chapter
+    // spine sections), not the whole section.
+    const words = pendingQuizWordsRef.current ?? controller.getCurrentChapterWords();
+    pendingQuizWordsRef.current = null;
     handleClose();
     comprehensionOfferRef.current?.(words);
   }, [handleClose]);
+
+  // Fired by the controller when RSVP finishes a chapter inside a spine
+  // section (e.g. between 1984's Part-internal chapters). The controller has
+  // already paused; capture the finished chapter for the quiz and flash.
+  const handleChapterEnd = useCallback(() => {
+    const controller = controllerRef.current;
+    if (!controller) return;
+    const aiEnabled = settings.aiSettings?.enabled;
+    const pauseAtChapterEnd = settings.aiSettings?.comprehension?.pauseAtChapterEnd ?? true;
+    if (!aiEnabled || !pauseAtChapterEnd) {
+      // Feature off: resume into the next chapter without interrupting.
+      controller.resume();
+      return;
+    }
+    // currentIndex now sits on the first word of the next chapter, so the
+    // chapter we just finished ends at currentIndex - 1.
+    const finishedIndex = Math.max(0, controller.currentState.currentIndex - 1);
+    pendingQuizWordsRef.current = controller.getChapterWordsAt(finishedIndex);
+    setQuizFlash(true);
+  }, [settings]);
 
   const handleChapterSelect = useCallback(
     (href: string) => {
       const view = getView(bookKey);
       if (!view) return;
 
-      const onRelocate = (e: Event) => {
-        view.removeEventListener('relocate', onRelocate);
-        const detail = (e as CustomEvent).detail as { section?: PageInfo; tocItem?: TOCItem };
-        rsvpSectionRef.current = detail.section?.current ?? view.renderer.primaryIndex;
-        rsvpChapterHrefRef.current = detail.tocItem?.href ?? null;
+      let handled = false;
+      let fallbackTimer: ReturnType<typeof setTimeout> | null = null;
+
+      const loadSelectedChapter = () => {
+        rsvpChapterHrefRef.current = href;
         const controller = controllerRef.current;
         if (controller) {
           const progress = getProgress(bookKey);
           if (progress?.location) {
             controller.setCurrentCfi(progress.location);
           }
-          controller.loadNextPageContent();
+          controller.loadNextPageContent(0, href);
         }
       };
+
+      const onRelocate = (e: Event) => {
+        if (handled) return;
+        handled = true;
+        view.removeEventListener('relocate', onRelocate);
+        if (fallbackTimer) clearTimeout(fallbackTimer);
+        const detail = (e as CustomEvent).detail as { section?: PageInfo; tocItem?: TOCItem };
+        rsvpSectionRef.current = detail.section?.current ?? view.renderer.primaryIndex;
+        loadSelectedChapter();
+      };
+
       view.addEventListener('relocate', onRelocate);
       view.goTo(href);
+
+      // Anchor navigation within the current spine file may scroll without a
+      // relocate event, so fall back to reloading the already-rendered content
+      // and seeking to the selected chapter's first tagged word.
+      fallbackTimer = setTimeout(() => {
+        if (handled) return;
+        handled = true;
+        view.removeEventListener('relocate', onRelocate);
+        rsvpSectionRef.current = view.renderer.primaryIndex;
+        loadSelectedChapter();
+      }, 300);
     },
     [bookKey, getProgress, getView],
   );
@@ -492,6 +556,28 @@ const RSVPControl: React.FC<RSVPControlProps> = ({ bookKey, gridInsets }) => {
       controllerRef.current?.pause();
       return;
     }
+
+    // Chapter-end quiz prompt: pause and flash the quiz button instead of
+    // advancing into the next chapter. Skip if we've already prompted for
+    // this section (a second play means "continue to the next chapter").
+    const aiEnabled = settings.aiSettings?.enabled;
+    const pauseAtChapterEnd = settings.aiSettings?.comprehension?.pauseAtChapterEnd ?? true;
+    const controller = controllerRef.current;
+    const wordsRead = controller?.currentState.words?.length ?? 0;
+    const currentSection = rsvpSectionRef.current;
+    if (
+      aiEnabled &&
+      pauseAtChapterEnd &&
+      controller &&
+      wordsRead >= 30 &&
+      quizPromptSectionRef.current !== currentSection
+    ) {
+      quizPromptSectionRef.current = currentSection;
+      controller.pause();
+      setQuizFlash(true);
+      return;
+    }
+    setQuizFlash(false);
 
     const indexBefore =
       rsvpSectionRef.current >= 0 ? rsvpSectionRef.current : view.renderer.primaryIndex;
@@ -527,7 +613,7 @@ const RSVPControl: React.FC<RSVPControlProps> = ({ bookKey, gridInsets }) => {
     // section after navigation (#detectPrimaryView), so nextSection() would re-navigate
     // to the already-current section and the onRelocate filter would discard the event.
     await view.renderer.goTo({ index: rsvpSectionRef.current + 1 });
-  }, [bookKey, getProgress, getView, removeRsvpHighlight]);
+  }, [bookKey, getProgress, getView, removeRsvpHighlight, settings]);
 
   // Get current chapter info
   const progress = getProgress(bookKey);
@@ -580,6 +666,8 @@ const RSVPControl: React.FC<RSVPControlProps> = ({ bookKey, gridInsets }) => {
             currentChapterHref={currentChapterHref}
             onClose={handleClose}
             onQuiz={handleQuiz}
+            quizFlash={quizFlash}
+            onChapterEnd={handleChapterEnd}
             onChapterSelect={handleChapterSelect}
             onRequestNextPage={handleRequestNextPage}
           />,

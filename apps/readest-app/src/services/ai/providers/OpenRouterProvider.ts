@@ -9,6 +9,24 @@ const DEFAULT_BASE_URL = 'https://openrouter.ai/api/v1';
 const DEFAULT_MODEL = 'openai/gpt-4o-mini';
 const DEFAULT_EMBEDDING_MODEL = 'openai/text-embedding-3-small';
 
+// Build OpenRouter's provider-routing object from settings. Returns undefined
+// when there's nothing to route (so non-OpenRouter endpoints are untouched).
+// See https://openrouter.ai/docs/guides/routing/provider-selection
+function buildOpenRouterRouting(settings: AISettings, baseUrl: string) {
+  if (!baseUrl.includes('openrouter.ai')) return undefined;
+  const routing: { sort?: string; max_price?: { prompt: number; completion: number } } = {};
+  if (settings.openrouterSort) {
+    routing.sort = settings.openrouterSort;
+  }
+  if (typeof settings.openrouterMaxPrice === 'number' && settings.openrouterMaxPrice > 0) {
+    routing.max_price = {
+      prompt: settings.openrouterMaxPrice,
+      completion: settings.openrouterMaxPrice,
+    };
+  }
+  return Object.keys(routing).length > 0 ? routing : undefined;
+}
+
 /**
  * Provider for any OpenAI-compatible /v1/chat/completions endpoint, with
  * OpenRouter as the default. Users supply their own API key and base URL.
@@ -56,6 +74,12 @@ export class OpenRouterProvider implements AIProvider {
       // fetch so streaming responses bypass the renderer's CORS sandbox
       // when running inside Tauri.
       fetch: this.httpFetch,
+      // Inject OpenRouter provider-routing (sort / max_price) into every
+      // request body. No-op for non-OpenRouter endpoints.
+      transformRequestBody: (args) => {
+        const routing = buildOpenRouterRouting(settings, this.baseUrl);
+        return routing ? { ...args, provider: routing } : args;
+      },
     });
     aiLogger.provider.init('openrouter', settings.openrouterModel || DEFAULT_MODEL);
   }
@@ -109,6 +133,11 @@ export interface OpenRouterModelInfo {
   name?: string;
   description?: string;
   context_length?: number;
+  // OpenRouter returns per-token prices as USD strings (e.g. "0.00000015").
+  pricing?: {
+    prompt?: string;
+    completion?: string;
+  };
 }
 
 /**
@@ -137,4 +166,54 @@ export async function fetchOpenRouterModels(
   }
   const json = (await response.json()) as { data?: OpenRouterModelInfo[] };
   return Array.isArray(json.data) ? json.data : [];
+}
+
+export interface OpenRouterEndpointStat {
+  provider: string;
+  pricePerM: number | null;
+  throughput: number | null; // tokens/sec (p50, last 30m)
+  latencyMs: number | null; // time-to-first-token ms (p50, last 30m)
+}
+
+interface RawEndpoint {
+  provider_name?: string;
+  pricing?: { prompt?: string };
+  throughput_last_30m?: { p50?: number } | null;
+  latency_last_30m?: { p50?: number } | null;
+}
+
+/**
+ * Per-provider performance stats for a single model. The throughput/latency
+ * fields are only populated for authenticated requests, so an API key is
+ * required. Returns [] on any error so the caller can degrade gracefully.
+ */
+export async function fetchOpenRouterModelEndpoints(
+  baseUrl: string,
+  apiKey: string,
+  modelId: string,
+  signal?: AbortSignal,
+): Promise<OpenRouterEndpointStat[]> {
+  const trimmed = (baseUrl || DEFAULT_BASE_URL).replace(/\/+$/, '');
+  const url = `${trimmed}/models/${modelId}/endpoints`;
+  const httpFetch = getAIFetch();
+  const response = await httpFetch(url, {
+    method: 'GET',
+    headers: { Authorization: `Bearer ${apiKey}` },
+    signal,
+  });
+  if (!response.ok) {
+    throw new Error(`Failed to fetch endpoints: ${response.status}`);
+  }
+  const json = (await response.json()) as { data?: { endpoints?: RawEndpoint[] } };
+  const endpoints = json.data?.endpoints ?? [];
+  return endpoints.map((e) => {
+    const priceStr = e.pricing?.prompt;
+    const priceNum = priceStr != null ? Number(priceStr) : NaN;
+    return {
+      provider: e.provider_name ?? 'unknown',
+      pricePerM: Number.isFinite(priceNum) ? priceNum * 1_000_000 : null,
+      throughput: e.throughput_last_30m?.p50 ?? null,
+      latencyMs: e.latency_last_30m?.p50 ?? null,
+    };
+  });
 }

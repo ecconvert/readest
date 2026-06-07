@@ -1,6 +1,6 @@
 import type { LanguageModel, EmbeddingModel } from 'ai';
 
-export type AIProviderName = 'ollama' | 'ai-gateway' | 'openrouter';
+export type AIProviderName = 'ollama' | 'ai-gateway' | 'openrouter' | 'groq';
 
 export interface AIProvider {
   id: AIProviderName;
@@ -33,6 +33,16 @@ export interface AISettings {
   openrouterBaseUrl?: string;
   openrouterModel?: string;
   openrouterEmbeddingModel?: string;
+  // OpenRouter provider routing (only applied when the base URL is OpenRouter).
+  // sort: which provider to prefer among those serving the model.
+  // maxPrice: cap in USD per 1M tokens (applied to prompt and completion);
+  // requests are rejected by OpenRouter rather than exceeding it.
+  openrouterSort?: 'price' | 'throughput' | 'latency';
+  openrouterMaxPrice?: number;
+
+  // Groq (OpenAI-compatible, fixed endpoint at api.groq.com).
+  groqApiKey?: string;
+  groqModel?: string;
 
   spoilerProtection: boolean;
   maxContextChunks: number;
@@ -53,6 +63,20 @@ export interface AISettings {
      * runtime === 'agent'` to engage.
      */
     runtime?: 'mvp' | 'agent';
+  };
+
+  comprehension?: {
+    /** Minimum number of questions regardless of passage length (default 3) */
+    baseQuestions: number;
+    /** Number of words read required to earn one extra question (default 100) */
+    wordsPerExtraQuestion: number;
+    /** Number of extra questions awarded per interval (default 1) */
+    extraQuestionsPerInterval: number;
+    /**
+     * When true, RSVP auto-pauses at each chapter boundary and flashes the
+     * quiz button instead of silently advancing into the next chapter.
+     */
+    pauseAtChapterEnd?: boolean;
   };
 }
 

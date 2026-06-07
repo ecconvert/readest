@@ -34,8 +34,19 @@ export const DEFAULT_AI_SETTINGS: AISettings = {
   openrouterModel: '',
   openrouterEmbeddingModel: '',
 
+  groqModel: 'llama-3.3-70b-versatile',
+
   spoilerProtection: true,
   maxContextChunks: 10,
   indexingMode: 'on-demand',
   reedy: { enabled: false },
+  comprehension: {
+    baseQuestions: 3,
+    wordsPerExtraQuestion: 100,
+    extraQuestionsPerInterval: 1,
+    pauseAtChapterEnd: true,
+  },
 };
+
+export const GROQ_BASE_URL = 'https://api.groq.com/openai/v1';
+export const GROQ_DEFAULT_MODEL = 'llama-3.3-70b-versatile';

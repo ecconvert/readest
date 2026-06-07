@@ -1,4 +1,4 @@
-import { generateObject } from 'ai';
+import { generateText } from 'ai';
 import { z } from 'zod';
 import { getAIProvider } from '@/services/ai/providers';
 import type { AISettings } from '@/services/ai/types';
@@ -7,18 +7,70 @@ import type { ComprehensionQuestion, ComprehensionSession } from './types';
 const STORAGE_KEY_PREFIX = 'readest_comprehension_';
 const MAX_HISTORY_PER_BOOK = 20;
 const DEFAULT_QUESTION_COUNT = 3;
-const DEFAULT_BUFFER_SIZE = 500;
+const DEFAULT_BUFFER_SIZE = 50000;
+const MAX_QUESTION_COUNT = 20;
 
-const QuestionsSchema = z.object({
-  questions: z.array(
-    z.object({
-      question: z.string(),
-      options: z.tuple([z.string(), z.string(), z.string(), z.string()]),
-      correct: z.number().int().min(0).max(3),
-      explanation: z.string(),
-    }),
-  ),
+function calcQuestionCount(wordCount: number, aiSettings: AISettings): number {
+  const cfg = aiSettings.comprehension;
+  const base = cfg?.baseQuestions ?? DEFAULT_QUESTION_COUNT;
+  const wordsPerExtra = cfg?.wordsPerExtraQuestion ?? 100;
+  const extraPerInterval = cfg?.extraQuestionsPerInterval ?? 1;
+  const extra = Math.floor(wordCount / wordsPerExtra) * extraPerInterval;
+  return Math.min(base + extra, MAX_QUESTION_COUNT);
+}
+
+const QuestionSchema = z.object({
+  question: z.string(),
+  options: z.tuple([z.string(), z.string(), z.string(), z.string()]),
+  correct: z.number().int().min(0).max(3),
+  explanation: z.string(),
 });
+
+// Tolerant parsing of an LLM response into the question array. Mirrors the
+// proven KOReader Lua approach: strip reasoning/markdown wrappers, locate the
+// JSON, accept either a bare array or a { questions: [...] } object, and
+// coerce common model quirks (1-indexed answers, out-of-range correct).
+function parseQuestions(raw: string): ComprehensionQuestion[] {
+  let clean = raw
+    // drop reasoning blocks some models emit before the JSON
+    .replace(/<think>[\s\S]*?<\/think>/gi, '')
+    // strip ```json ... ``` fences
+    .replace(/^```[\w]*\n?/, '')
+    .replace(/\n?```$/, '')
+    .trim();
+
+  let decoded: unknown;
+  try {
+    decoded = JSON.parse(clean);
+  } catch {
+    // Fallback: locate the first JSON object/array anywhere in the text
+    const start = clean.search(/[[{]/);
+    if (start >= 0) {
+      clean = clean.slice(start);
+      // trim trailing prose after the last closing bracket/brace
+      const lastClose = Math.max(clean.lastIndexOf('}'), clean.lastIndexOf(']'));
+      if (lastClose >= 0) clean = clean.slice(0, lastClose + 1);
+    }
+    decoded = JSON.parse(clean); // throws if still unparseable
+  }
+
+  const arr = Array.isArray(decoded)
+    ? decoded
+    : ((decoded as { questions?: unknown }).questions ?? null);
+  if (!Array.isArray(arr) || arr.length === 0) {
+    throw new Error('No questions array found in response');
+  }
+
+  return arr.map((q) => {
+    const item = q as { correct?: unknown };
+    // Coerce 1-indexed (1-4) → 0-indexed; clamp anything else into range.
+    let correct = Math.floor(Number(item.correct));
+    if (!Number.isFinite(correct) || correct < 0 || correct > 3) {
+      correct = correct >= 1 && correct <= 4 ? correct - 1 : 0;
+    }
+    return QuestionSchema.parse({ ...(q as object), correct });
+  });
+}
 
 function buildPrompt(
   words: string[],
@@ -27,7 +79,7 @@ function buildPrompt(
   questionCount: number,
   avoidQuestions: string[],
 ): string {
-  const passage = words.slice(-DEFAULT_BUFFER_SIZE).join(' ');
+  const passage = words.join(' ');
   const meta = authorName ? `"${bookTitle}" by ${authorName}` : `"${bookTitle}"`;
 
   const avoidBlock =
@@ -56,22 +108,35 @@ export async function generateQuestions(
   bookTitle: string,
   authorName: string,
   aiSettings: AISettings,
-  questionCount = DEFAULT_QUESTION_COUNT,
+  questionCount?: number,
   avoidQuestions: string[] = [],
-): Promise<ComprehensionQuestion[]> {
+): Promise<{ questions: ComprehensionQuestion[]; prompt: string }> {
+  const passage = words.slice(-DEFAULT_BUFFER_SIZE);
+  const count = questionCount ?? calcQuestionCount(passage.length, aiSettings);
   const provider = getAIProvider(aiSettings);
   const model = provider.getModel();
-  const prompt = buildPrompt(words, bookTitle, authorName, questionCount, avoidQuestions);
+  const prompt = buildPrompt(passage, bookTitle, authorName, count, avoidQuestions);
+  const maxOutputTokens = Math.max(1024, count * 300);
 
-  const { object } = await generateObject({
-    model,
-    schema: QuestionsSchema,
-    prompt,
-    temperature: 0.6,
-    maxOutputTokens: Math.max(1024, questionCount * 300),
-  });
-
-  return object.questions as ComprehensionQuestion[];
+  // generateText + tolerant parse (instead of generateObject) so models that
+  // wrap JSON in reasoning/markdown — common with free + reasoning models —
+  // still work. Retry once before surfacing the error.
+  let lastError: unknown;
+  let lastRaw = '';
+  for (let attempt = 0; attempt < 2; attempt++) {
+    const { text } = await generateText({ model, prompt, temperature: 0.6, maxOutputTokens });
+    lastRaw = text;
+    try {
+      return { questions: parseQuestions(text), prompt };
+    } catch (err) {
+      lastError = err;
+    }
+  }
+  const snippet = lastRaw.slice(0, 200).replace(/\s+/g, ' ').trim();
+  throw new Error(
+    `Could not parse model response: ${lastError instanceof Error ? lastError.message : 'unknown'}` +
+      (snippet ? ` — got: "${snippet}…"` : ''),
+  );
 }
 
 export function saveSession(bookHash: string, session: ComprehensionSession): void {

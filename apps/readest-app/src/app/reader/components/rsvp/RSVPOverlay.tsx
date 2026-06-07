@@ -28,6 +28,39 @@ interface FlatChapter {
   level: number;
 }
 
+const safeDecodeURIComponent = (value: string): string => {
+  try {
+    return decodeURIComponent(value);
+  } catch {
+    return value;
+  }
+};
+
+const splitHref = (href: string): { path: string; fragment: string } => {
+  const [path = '', fragment = ''] = href.split('#');
+  return {
+    path: safeDecodeURIComponent(path).replace(/^\/+/, ''),
+    fragment: safeDecodeURIComponent(fragment),
+  };
+};
+
+const pathsMatch = (a: string, b: string): boolean => {
+  if (!a || !b) return false;
+  return a === b || a.endsWith(`/${b}`) || b.endsWith(`/${a}`);
+};
+
+const chapterHrefsMatch = (candidateHref: string, currentHref: string): boolean => {
+  const candidate = splitHref(candidateHref);
+  const current = splitHref(currentHref);
+  if (!pathsMatch(candidate.path, current.path)) return false;
+
+  if (candidate.fragment || current.fragment) {
+    return candidate.fragment === current.fragment;
+  }
+
+  return true;
+};
+
 interface ContextWordProps {
   text: string;
   wordIndex: number;
@@ -81,6 +114,8 @@ interface RSVPOverlayProps {
   currentChapterHref: string | null;
   onClose: () => void;
   onQuiz: () => void;
+  quizFlash?: boolean;
+  onChapterEnd?: () => void;
   onChapterSelect: (href: string) => void;
   onRequestNextPage: () => void;
 }
@@ -92,12 +127,23 @@ const RSVPOverlay: React.FC<RSVPOverlayProps> = ({
   currentChapterHref,
   onClose,
   onQuiz,
+  quizFlash,
+  onChapterEnd,
   onChapterSelect,
   onRequestNextPage,
 }) => {
   const _ = useTranslation();
   const { themeCode, isDarkMode: _isDarkMode } = useThemeStore();
   const [state, setState] = useState<RsvpState>(controller.currentState);
+  // Chapter-relative progress: a single spine section can hold several TOC
+  // chapters (e.g. 1984's Parts), so count within the current chapter rather
+  // than the whole section.
+  const chapterProgress = useMemo(() => {
+    if (state.words.length === 0) return { pos: 0, total: 0 };
+    const { start, end } = controller.getChapterBounds(state.currentIndex);
+    return { pos: state.currentIndex - start + 1, total: end - start + 1 };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [controller, state.currentIndex, state.words]);
   const currentWord = controller.currentDisplayWord;
   const [countdown, setCountdown] = useState<number | null>(controller.currentCountdown);
   const [showChapterDropdown, setShowChapterDropdown] = useState(false);
@@ -182,16 +228,22 @@ const RSVPOverlay: React.FC<RSVPOverlayProps> = ({
       onRequestNextPage();
     };
 
+    const handleChapterEnd = () => {
+      onChapterEnd?.();
+    };
+
     controller.addEventListener('rsvp-state-change', handleStateChange);
     controller.addEventListener('rsvp-countdown-change', handleCountdownChange);
     controller.addEventListener('rsvp-request-next-page', handleRequestNextPage);
+    controller.addEventListener('rsvp-chapter-end', handleChapterEnd);
 
     return () => {
       controller.removeEventListener('rsvp-state-change', handleStateChange);
       controller.removeEventListener('rsvp-countdown-change', handleCountdownChange);
       controller.removeEventListener('rsvp-request-next-page', handleRequestNextPage);
+      controller.removeEventListener('rsvp-chapter-end', handleChapterEnd);
     };
-  }, [controller, onRequestNextPage]);
+  }, [controller, onRequestNextPage, onChapterEnd]);
 
   // Keyboard shortcuts - use capture phase to intercept before native elements
   useEffect(() => {
@@ -245,7 +297,12 @@ const RSVPOverlay: React.FC<RSVPOverlayProps> = ({
     return () => document.removeEventListener('keydown', handleKeyboard, { capture: true });
   }, [state.active, controller, onClose]);
 
-  const effectiveChapterHref = currentChapterHref;
+  // Derive the active chapter href from the current word's chapterHref when
+  // words are loaded — this is always accurate for multi-chapter spine sections
+  // (e.g. 1984's Parts). The prop is used only as a fallback before words load.
+  const currentWordChapterHref =
+    state.words.length > 0 ? state.words[state.currentIndex]?.chapterHref : undefined;
+  const effectiveChapterHref = currentWordChapterHref ?? currentChapterHref;
 
   // Word display helpers
   const wordBefore = currentWord ? currentWord.text.substring(0, currentWord.orpIndex) : '';
@@ -337,23 +394,17 @@ const RSVPOverlay: React.FC<RSVPOverlayProps> = ({
   // Chapter helpers
   const getCurrentChapterLabel = useCallback((): string => {
     if (!effectiveChapterHref) return _('Select Chapter');
-    const exactMatch = flatChapters.find((c) => c.href === effectiveChapterHref);
+    const exactMatch = flatChapters.find((c) => chapterHrefsMatch(c.href, effectiveChapterHref));
     if (exactMatch) return exactMatch.label;
-    const normalizedCurrent = effectiveChapterHref.split('#')[0]?.replace(/^\//, '') || '';
-    const chapter = flatChapters.find((c) => {
-      const normalizedHref = c.href.split('#')[0]?.replace(/^\//, '') || '';
-      return normalizedHref === normalizedCurrent;
-    });
+    const { path: currentPath } = splitHref(effectiveChapterHref);
+    const chapter = flatChapters.find((c) => pathsMatch(splitHref(c.href).path, currentPath));
     return chapter?.label || _('Select Chapter');
   }, [_, effectiveChapterHref, flatChapters]);
 
   const isChapterActive = useCallback(
     (href: string): boolean => {
       if (!effectiveChapterHref) return false;
-      if (href === effectiveChapterHref) return true;
-      const normalizedCurrent = effectiveChapterHref.split('#')[0]?.replace(/^\//, '') || '';
-      const normalizedHref = href.split('#')[0]?.replace(/^\//, '') || '';
-      return normalizedHref === normalizedCurrent;
+      return chapterHrefsMatch(href, effectiveChapterHref);
     },
     [effectiveChapterHref],
   );
@@ -535,8 +586,11 @@ const RSVPOverlay: React.FC<RSVPOverlayProps> = ({
 
         <button
           aria-label={_('Comprehension Quiz')}
-          title={_('Comprehension Quiz')}
-          className='flex h-9 w-9 shrink-0 items-center justify-center rounded-full transition-colors hover:bg-gray-500/20'
+          title={quizFlash ? _('Chapter complete — take a quiz') : _('Comprehension Quiz')}
+          className={clsx(
+            'flex h-9 w-9 shrink-0 items-center justify-center rounded-full transition-colors hover:bg-gray-500/20',
+            quizFlash && 'rsvp-quiz-flash text-amber-500',
+          )}
           onClick={onQuiz}
         >
           <IoBulb className='h-5 w-5' />
@@ -683,14 +737,16 @@ const RSVPOverlay: React.FC<RSVPOverlayProps> = ({
                 const wordIndex = contextWindow.start + i;
                 const isCurrent = wordIndex === state.currentIndex;
                 return (
-                  <ContextWord
-                    key={wordIndex}
-                    text={w.text}
-                    wordIndex={wordIndex}
-                    isCurrent={isCurrent}
-                    currentRef={isCurrent ? contextWordRef : undefined}
-                    orpColor={isCurrent ? effectiveOrpColor : undefined}
-                  />
+                  <React.Fragment key={wordIndex}>
+                    {w.isNewBlock && wordIndex !== contextWindow.start && <br />}
+                    <ContextWord
+                      text={w.text}
+                      wordIndex={wordIndex}
+                      isCurrent={isCurrent}
+                      currentRef={isCurrent ? contextWordRef : undefined}
+                      orpColor={isCurrent ? effectiveOrpColor : undefined}
+                    />
+                  </React.Fragment>
                 );
               })}
               {hasMoreAfter && <span className='opacity-30'>…</span>}
@@ -778,7 +834,7 @@ const RSVPOverlay: React.FC<RSVPOverlayProps> = ({
               {_('Chapter Progress')}
             </span>
             <span className='tabular-nums opacity-60'>
-              {(state.currentIndex + 1).toLocaleString()} / {state.words.length.toLocaleString()}{' '}
+              {chapterProgress.pos.toLocaleString()} / {chapterProgress.total.toLocaleString()}{' '}
               {_('words')}
               {getTimeRemaining() && (
                 <span className='opacity-80'>

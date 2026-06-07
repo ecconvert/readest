@@ -13,6 +13,7 @@ interface ComprehensionState {
   results: ComprehensionResult[];
   currentIndex: number;
   error: string | null;
+  lastPrompt: string | null;
 }
 
 const INITIAL_STATE: ComprehensionState = {
@@ -21,6 +22,7 @@ const INITIAL_STATE: ComprehensionState = {
   results: [],
   currentIndex: 0,
   error: null,
+  lastPrompt: null,
 };
 
 export function useComprehension(
@@ -48,7 +50,7 @@ export function useComprehension(
       setState((s) => ({ ...s, phase: 'generating', error: null }));
       try {
         const avoid = priorResults.map((r) => r.question);
-        const questions = await generateQuestions(
+        const { questions, prompt } = await generateQuestions(
           sessionWords,
           bookTitle,
           authorName,
@@ -62,6 +64,7 @@ export function useComprehension(
           questions,
           results: priorResults,
           currentIndex: 0,
+          lastPrompt: prompt,
         }));
       } catch (err) {
         setState((s) => ({

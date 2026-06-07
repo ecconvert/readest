@@ -1,21 +1,24 @@
 'use client';
 
-import React from 'react';
+import React, { useState } from 'react';
 import { useThemeStore } from '@/store/themeStore';
 import { useTranslation } from '@/hooks/useTranslation';
 import { IoCheckmarkCircle, IoCloseCircle } from 'react-icons/io5';
+import { MdBugReport } from 'react-icons/md';
 import type { ComprehensionResult } from '@/services/comprehension';
 
 const OPTION_LABELS = ['A', 'B', 'C', 'D'] as const;
 
 interface ComprehensionResultsDialogProps {
   results: ComprehensionResult[];
+  lastPrompt: string | null;
   onMore: () => void;
   onClose: () => void;
 }
 
 const ComprehensionResultsDialog: React.FC<ComprehensionResultsDialogProps> = ({
   results,
+  lastPrompt,
   onMore,
   onClose,
 }) => {
@@ -27,6 +30,8 @@ const ComprehensionResultsDialog: React.FC<ComprehensionResultsDialogProps> = ({
   const backdropColor = isDarkMode ? 'rgba(0,0,0,0.75)' : 'rgba(0,0,0,0.6)';
   const correctColor = '#22c55e';
   const wrongColor = '#ef4444';
+
+  const [showDebug, setShowDebug] = useState(false);
 
   const score = results.filter((r) => r.isCorrect).length;
 
@@ -44,14 +49,39 @@ const ComprehensionResultsDialog: React.FC<ComprehensionResultsDialogProps> = ({
         aria-labelledby='comprehension-results-title'
       >
         {/* Header */}
-        <div className='flex-none px-6 pt-6'>
-          <h2 id='comprehension-results-title' className='mb-1 text-lg font-bold'>
-            {_('Results')}
-          </h2>
-          <p className='text-3xl font-bold' style={{ color: accentColor }}>
-            {score} / {results.length}
-          </p>
+        <div className='flex-none flex items-start justify-between px-6 pt-6'>
+          <div>
+            <h2 id='comprehension-results-title' className='mb-1 text-lg font-bold'>
+              {_('Results')}
+            </h2>
+            <p className='text-3xl font-bold' style={{ color: accentColor }}>
+              {score} / {results.length}
+            </p>
+          </div>
+          {lastPrompt && (
+            <button
+              onClick={() => setShowDebug((v) => !v)}
+              title='Debug: show AI prompt'
+              className='mt-1 rounded-lg p-1.5 opacity-40 transition-opacity hover:opacity-80'
+              style={{ color: fgColor }}
+            >
+              <MdBugReport size={20} />
+            </button>
+          )}
         </div>
+
+        {/* Debug panel */}
+        {showDebug && lastPrompt && (
+          <div className='mx-6 mt-3 rounded-xl bg-gray-500/10 p-3'>
+            <p className='mb-1 text-xs font-semibold opacity-60'>Prompt sent to AI:</p>
+            <pre
+              className='max-h-40 overflow-y-auto whitespace-pre-wrap break-words text-xs opacity-70'
+              style={{ fontFamily: 'monospace' }}
+            >
+              {lastPrompt}
+            </pre>
+          </div>
+        )}
 
         {/* Scrollable results list */}
         <div className='flex-1 overflow-y-auto px-6 py-4'>

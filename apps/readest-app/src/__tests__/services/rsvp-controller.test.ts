@@ -47,6 +47,54 @@ function createMockView(primaryIndex: number, docs: Document[]): FoliateView {
   } as unknown as FoliateView;
 }
 
+/** Build a minimal Document with two chapters separated by anchor elements.
+ *  Chapter A: words "alpha beta gamma"   (anchored on id="ch-a")
+ *  Chapter B: words "delta epsilon zeta omega"  (anchored on id="ch-b")
+ */
+function makeMultiChapterDoc(): Document {
+  const makeEl = (
+    tag: string,
+    id: string | null,
+    text: string | null,
+    doc: Document,
+  ): HTMLElement => {
+    const textNode = text
+      ? ({ nodeType: Node.TEXT_NODE, textContent: text, ownerDocument: doc } as unknown as Text)
+      : null;
+    const el: HTMLElement = {
+      nodeType: Node.ELEMENT_NODE,
+      tagName: tag.toUpperCase(),
+      id: id ?? '',
+      childNodes: textNode ? [textNode] : [],
+      ownerDocument: doc,
+    } as unknown as HTMLElement;
+    return el;
+  };
+
+  const doc = {
+    createRange: vi.fn().mockReturnValue({ setStart: vi.fn(), setEnd: vi.fn() }),
+    defaultView: {
+      getComputedStyle: vi.fn().mockReturnValue({ display: 'block', visibility: 'visible' }),
+    },
+  } as unknown as Document;
+
+  const anchorA = makeEl('div', 'ch-a', null, doc);
+  const textA = makeEl('p', null, 'alpha beta gamma', doc);
+  const anchorB = makeEl('div', 'ch-b', null, doc);
+  const textB = makeEl('p', null, 'delta epsilon zeta omega', doc);
+
+  const body: HTMLElement = {
+    nodeType: Node.ELEMENT_NODE,
+    tagName: 'BODY',
+    id: '',
+    childNodes: [anchorA, textA, anchorB, textB],
+    ownerDocument: doc,
+  } as unknown as HTMLElement;
+
+  (doc as unknown as { body: HTMLElement }).body = body;
+  return doc;
+}
+
 describe('RSVPController', () => {
   // start() schedules a countdown (setInterval) which then schedules the
   // recurring word-advance (setTimeout). These tests assert synchronously and
@@ -59,6 +107,22 @@ describe('RSVPController', () => {
   // the CFI/position assertions are unaffected.
   beforeEach(() => {
     vi.useFakeTimers({ toFake: ['setTimeout', 'setInterval', 'clearTimeout', 'clearInterval'] });
+    // jsdom's localStorage implementation is unavailable in this vitest version;
+    // provide a minimal in-memory mock so RSVPController can persist settings.
+    const store: Record<string, string> = {};
+    const lsMock = {
+      getItem: (k: string) => store[k] ?? null,
+      setItem: (k: string, v: string) => {
+        store[k] = v;
+      },
+      removeItem: (k: string) => {
+        delete store[k];
+      },
+      clear: () => {
+        for (const k in store) delete store[k];
+      },
+    };
+    Object.defineProperty(globalThis, 'localStorage', { value: lsMock, configurable: true });
   });
 
   afterEach(() => {
@@ -362,6 +426,206 @@ describe('RSVPController', () => {
       expect(words.length).toBe(2);
       expect(words[0]!.text).toBe('the');
       expect(words[1]!.text).toBe('cat');
+    });
+  });
+
+  describe('getChapterWordsAt', () => {
+    test('returns only words up to the given index, not the full chapter', () => {
+      const doc = makeMultiChapterDoc();
+      const view = createMockView(0, [doc]);
+      const controller = new RSVPController(view, 'test-book-abc123');
+      controller.setToc([
+        { id: 1, index: 0, label: 'Chapter A', href: 'file.xhtml#ch-a', subitems: [] },
+        { id: 2, index: 1, label: 'Chapter B', href: 'file.xhtml#ch-b', subitems: [] },
+      ]);
+      controller.start();
+
+      const words = controller.currentState.words;
+      // Ch B starts at the first word tagged with ch-b href.
+      const chBStart = words.findIndex((w) => w.chapterHref === 'file.xhtml#ch-b');
+      expect(chBStart).toBeGreaterThan(0);
+
+      // Simulate reading 2 words into Ch B (chBStart + 1).
+      const midIndex = chBStart + 1;
+
+      // getChapterWordsAt should return only words from ch-b start up to midIndex.
+      const result = controller.getChapterWordsAt(midIndex);
+      expect(result).toEqual(['delta', 'epsilon']);
+
+      // Confirm it does NOT include words beyond midIndex ('zeta', 'omega').
+      expect(result).not.toContain('zeta');
+      expect(result).not.toContain('omega');
+    });
+
+    test('returns the full chapter when called at the last word of a chapter', () => {
+      const doc = makeMultiChapterDoc();
+      const view = createMockView(0, [doc]);
+      const controller = new RSVPController(view, 'test-book-abc123');
+      controller.setToc([
+        { id: 1, index: 0, label: 'Chapter A', href: 'file.xhtml#ch-a', subitems: [] },
+        { id: 2, index: 1, label: 'Chapter B', href: 'file.xhtml#ch-b', subitems: [] },
+      ]);
+      controller.start();
+
+      const words = controller.currentState.words;
+      const lastChBIndex = words.length - 1; // 'omega' is the last word
+
+      const result = controller.getChapterWordsAt(lastChBIndex);
+      expect(result).toEqual(['delta', 'epsilon', 'zeta', 'omega']);
+    });
+  });
+
+  describe('isNewBlock', () => {
+    // Build a minimal Document with two <p> elements back-to-back.
+    //   <body><p>hello world</p><p>foo bar</p></body>
+    function makeBlockDoc(): Document {
+      const doc = {
+        createRange: vi.fn().mockReturnValue({ setStart: vi.fn(), setEnd: vi.fn() }),
+        defaultView: {
+          getComputedStyle: vi.fn().mockReturnValue({ display: 'block', visibility: 'visible' }),
+        },
+      } as unknown as Document;
+      const makeEl = (
+        tag: string,
+        textContent: string | null,
+        children?: unknown[],
+      ): HTMLElement => {
+        const textNode = textContent
+          ? ({ nodeType: Node.TEXT_NODE, textContent, ownerDocument: doc } as unknown as Text)
+          : null;
+        return {
+          nodeType: Node.ELEMENT_NODE,
+          tagName: tag.toUpperCase(),
+          id: '',
+          childNodes: children ?? (textNode ? [textNode] : []),
+          ownerDocument: doc,
+        } as unknown as HTMLElement;
+      };
+      const p1 = makeEl('p', 'hello world');
+      const p2 = makeEl('p', 'foo bar');
+      const body = makeEl('body', null, [p1, p2]);
+      (doc as unknown as { body: HTMLElement }).body = body;
+      return doc;
+    }
+
+    // Build: <body><p>hello<br/>world</p></body>
+    function makeBreakDoc(): Document {
+      const doc = {
+        createRange: vi.fn().mockReturnValue({ setStart: vi.fn(), setEnd: vi.fn() }),
+        defaultView: {
+          getComputedStyle: vi.fn().mockReturnValue({ display: 'block', visibility: 'visible' }),
+        },
+      } as unknown as Document;
+      const makeText = (t: string) =>
+        ({ nodeType: Node.TEXT_NODE, textContent: t, ownerDocument: doc }) as unknown as Text;
+      const brEl = {
+        nodeType: Node.ELEMENT_NODE,
+        tagName: 'BR',
+        id: '',
+        childNodes: [],
+        ownerDocument: doc,
+      } as unknown as HTMLElement;
+      const p = {
+        nodeType: Node.ELEMENT_NODE,
+        tagName: 'P',
+        id: '',
+        childNodes: [makeText('hello'), brEl, makeText('world')],
+        ownerDocument: doc,
+      } as unknown as HTMLElement;
+      const body = {
+        nodeType: Node.ELEMENT_NODE,
+        tagName: 'BODY',
+        id: '',
+        childNodes: [p],
+        ownerDocument: doc,
+      } as unknown as HTMLElement;
+      (doc as unknown as { body: HTMLElement }).body = body;
+      return doc;
+    }
+
+    // Build: <body><p>hello <em>world</em> bye</p></body>
+    function makeInlineDoc(): Document {
+      const doc = {
+        createRange: vi.fn().mockReturnValue({ setStart: vi.fn(), setEnd: vi.fn() }),
+        defaultView: {
+          getComputedStyle: vi.fn().mockReturnValue({ display: 'block', visibility: 'visible' }),
+        },
+      } as unknown as Document;
+      const makeText = (t: string) =>
+        ({ nodeType: Node.TEXT_NODE, textContent: t, ownerDocument: doc }) as unknown as Text;
+      const em = {
+        nodeType: Node.ELEMENT_NODE,
+        tagName: 'EM',
+        id: '',
+        childNodes: [makeText('world')],
+        ownerDocument: doc,
+      } as unknown as HTMLElement;
+      const p = {
+        nodeType: Node.ELEMENT_NODE,
+        tagName: 'P',
+        id: '',
+        childNodes: [makeText('hello '), em, makeText(' bye')],
+        ownerDocument: doc,
+      } as unknown as HTMLElement;
+      const body = {
+        nodeType: Node.ELEMENT_NODE,
+        tagName: 'BODY',
+        id: '',
+        childNodes: [p],
+        ownerDocument: doc,
+      } as unknown as HTMLElement;
+      (doc as unknown as { body: HTMLElement }).body = body;
+      return doc;
+    }
+
+    test('first word overall does not get isNewBlock (no previous words)', () => {
+      const view = createMockView(0, [makeBlockDoc()]);
+      const controller = new RSVPController(view, 'test-book-abc123');
+      controller.start();
+
+      const words = controller.currentState.words;
+      expect(words[0]!.text).toBe('hello');
+      expect(words[0]!.isNewBlock).toBeFalsy();
+    });
+
+    test('first word of second paragraph gets isNewBlock true', () => {
+      const view = createMockView(0, [makeBlockDoc()]);
+      const controller = new RSVPController(view, 'test-book-abc123');
+      controller.start();
+
+      const words = controller.currentState.words;
+      const fooIdx = words.findIndex((w) => w.text === 'foo');
+      expect(fooIdx).toBeGreaterThan(0);
+      expect(words[fooIdx]!.isNewBlock).toBe(true);
+    });
+
+    test('word after <br> gets isNewBlock true', () => {
+      const view = createMockView(0, [makeBreakDoc()]);
+      const controller = new RSVPController(view, 'test-book-abc123');
+      controller.start();
+
+      const words = controller.currentState.words;
+      expect(words[0]!.text).toBe('hello');
+      expect(words[0]!.isNewBlock).toBeFalsy();
+      const worldIdx = words.findIndex((w) => w.text === 'world');
+      expect(worldIdx).toBeGreaterThan(0);
+      expect(words[worldIdx]!.isNewBlock).toBe(true);
+    });
+
+    test('inline element (em) does not trigger isNewBlock', () => {
+      const view = createMockView(0, [makeInlineDoc()]);
+      const controller = new RSVPController(view, 'test-book-abc123');
+      controller.start();
+
+      const words = controller.currentState.words;
+      // words: hello, world, bye  — none should have isNewBlock
+      // 'world' is inside <em> but <em> is inline
+      const worldIdx = words.findIndex((w) => w.text === 'world');
+      expect(worldIdx).toBeGreaterThan(0);
+      expect(words[worldIdx]!.isNewBlock).toBeFalsy();
+      const byeIdx = words.findIndex((w) => w.text === 'bye');
+      expect(byeIdx).toBeGreaterThan(0);
+      expect(words[byeIdx]!.isNewBlock).toBeFalsy();
     });
   });
 

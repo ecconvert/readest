@@ -120,6 +120,8 @@ function chatModelIdFor(settings: AISettings): string {
       );
     case 'openrouter':
       return settings.openrouterModel || 'openai/gpt-4o-mini';
+    case 'groq':
+      return settings.groqModel || 'llama-3.3-70b-versatile';
   }
 }
 
@@ -173,5 +175,8 @@ function embeddingModelIdFor(settings: AISettings): string {
       return settings.aiGatewayEmbeddingModel || 'openai/text-embedding-3-small';
     case 'openrouter':
       return settings.openrouterEmbeddingModel || 'openai/text-embedding-3-small';
+    case 'groq':
+      // Groq has no embeddings endpoint; Reedy/RAG is unsupported on Groq.
+      return 'openai/text-embedding-3-small';
   }
 }

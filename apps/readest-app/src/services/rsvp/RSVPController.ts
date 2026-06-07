@@ -1,5 +1,6 @@
 import { FoliateView } from '@/types/view';
 import { RsvpWord, RsvpState, RsvpPosition, RsvpStopPosition, RsvpStartChoice } from './types';
+import type { TOCItem } from '@/libs/document';
 import { containsCJK, isCJKPunctuation, splitTextIntoWords, getHyphenParts } from './utils';
 import { compare as compareCFI } from 'foliate-js/epubcfi.js';
 import { XCFI } from '@/utils/xcfi';
@@ -12,6 +13,9 @@ const DEFAULT_PUNCTUATION_PAUSE_MS = 100;
 const PUNCTUATION_PAUSE_OPTIONS = [25, 50, 75, 100, 125, 150, 175, 200];
 const DEFAULT_SPLIT_HYPHENS = false;
 const DEFAULT_CJK_CHAR_MODE = false;
+// A finished chapter must have at least this many words to trigger a mid-section
+// chapter-end pause — suppresses spurious pauses on tiny title/heading segments.
+const MIN_CHAPTER_WORDS = 50;
 const STORAGE_KEY_PREFIX = 'readest_rsvp_wpm_';
 const PUNCTUATION_PAUSE_KEY_PREFIX = 'readest_rsvp_pause_';
 const POSITION_KEY_PREFIX = 'readest_rsvp_pos_';
@@ -20,6 +24,38 @@ const CJK_CHAR_MODE_KEY = 'readest_rsvp_cjk_char_mode';
 
 // Section-only CFI (no '!') sorts before any word CFI in that section.
 const stripCfiPath = (cfi: string): string => cfi.replace(/!.*\)$/, ')');
+
+const safeDecodeURIComponent = (value: string): string => {
+  try {
+    return decodeURIComponent(value);
+  } catch {
+    return value;
+  }
+};
+
+const splitHref = (href: string): { path: string; fragment: string } => {
+  const [path = '', fragment = ''] = href.split('#');
+  return {
+    path: safeDecodeURIComponent(path).replace(/^\/+/, ''),
+    fragment: safeDecodeURIComponent(fragment),
+  };
+};
+
+const pathsMatch = (a: string, b: string): boolean => {
+  if (!a || !b) return false;
+  return a === b || a.endsWith(`/${b}`) || b.endsWith(`/${a}`);
+};
+
+const chapterHrefsMatch = (candidateHref: string | undefined, targetHref: string): boolean => {
+  if (!candidateHref) return false;
+  const candidate = splitHref(candidateHref);
+  const target = splitHref(targetHref);
+  return (
+    pathsMatch(candidate.path, target.path) &&
+    !!candidate.fragment &&
+    candidate.fragment === target.fragment
+  );
+};
 
 export class RSVPController extends EventTarget {
   private view: FoliateView;
@@ -46,6 +82,9 @@ export class RSVPController extends EventTarget {
   private pendingStartWordIndex: number | null = null;
   private countdown: number | null = null;
   private cachedWords: { docIndex: number; doc: Document; words: RsvpWord[] } | null = null;
+  // Map of section-local element id (TOC #fragment) -> full TOC href, used to
+  // tag each word with the chapter it belongs to during extraction.
+  private chapterAnchors = new Map<string, string>();
 
   constructor(view: FoliateView, bookKey: string, primaryLanguage?: string) {
     super();
@@ -62,6 +101,55 @@ export class RSVPController extends EventTarget {
     this.primaryLanguage = lang;
     // Language changes invalidate the segmentation result.
     this.cachedWords = null;
+  }
+
+  // Register the book's TOC so word extraction can split a spine section into
+  // its constituent chapters by their #fragment anchors.
+  setToc(toc: TOCItem[] | undefined): void {
+    this.chapterAnchors.clear();
+    const flatten = (items: TOCItem[]) => {
+      for (const item of items) {
+        const hashIndex = item.href?.indexOf('#') ?? -1;
+        if (hashIndex >= 0) {
+          const fragment = safeDecodeURIComponent(item.href.slice(hashIndex + 1));
+          if (fragment) this.chapterAnchors.set(fragment, item.href);
+        }
+        if (item.subitems?.length) flatten(item.subitems);
+      }
+    };
+    if (toc) flatten(toc);
+    // Re-tag on next extraction.
+    this.cachedWords = null;
+  }
+
+  // Bounds [start, end] of the contiguous run of words sharing the chapter of
+  // words[index]. Falls back to the whole word list when chapters are unknown.
+  getChapterBounds(index: number): { start: number; end: number } {
+    const words = this.state.words;
+    if (words.length === 0) return { start: 0, end: 0 };
+    const i = Math.max(0, Math.min(words.length - 1, index));
+    const href = words[i]?.chapterHref;
+    let start = i;
+    let end = i;
+    while (start > 0 && words[start - 1]?.chapterHref === href) start--;
+    while (end < words.length - 1 && words[end + 1]?.chapterHref === href) end++;
+    return { start, end };
+  }
+
+  // Words read up to and including words[index] within the same chapter.
+  // Caps at index so mid-chapter quiz prompts only include what was actually
+  // read, not future chapter content.
+  getChapterWordsAt(index: number): string[] {
+    const { start } = this.getChapterBounds(index);
+    return this.state.words
+      .slice(start, index + 1)
+      .map((w) => w.text)
+      .filter((t) => t.trim().length > 0);
+  }
+
+  // Words of the chapter currently being read.
+  getCurrentChapterWords(): string[] {
+    return this.getChapterWordsAt(this.state.currentIndex);
   }
 
   private loadSettings(): void {
@@ -683,16 +771,28 @@ export class RSVPController extends EventTarget {
     this.emitStateChange();
   }
 
-  loadNextPageContent(retryCount = 0): void {
+  loadNextPageContent(retryCount = 0, targetChapterHref?: string): void {
     this.clearTimer();
     const words = this.extractWordsWithRanges();
     if (words.length === 0) {
       if (retryCount < 3) {
-        setTimeout(() => this.loadNextPageContent(retryCount + 1), 200 * (retryCount + 1));
+        setTimeout(
+          () => this.loadNextPageContent(retryCount + 1, targetChapterHref),
+          200 * (retryCount + 1),
+        );
         return;
       }
       this.dispatchEvent(new CustomEvent('rsvp-request-next-page'));
       return;
+    }
+
+    // When jumping to a specific chapter (e.g. via the chapter selector), seek
+    // to the first word tagged with that chapter rather than word 0, so the
+    // chapter label and word count reflect the selected chapter immediately.
+    let startIndex = 0;
+    if (targetChapterHref) {
+      const idx = words.findIndex((w) => chapterHrefsMatch(w.chapterHref, targetChapterHref));
+      if (idx >= 0) startIndex = idx;
     }
 
     const wasPlaying = this.state.playing;
@@ -700,7 +800,7 @@ export class RSVPController extends EventTarget {
       ...this.state,
       playing: false,
       words,
-      currentIndex: 0,
+      currentIndex: startIndex,
       currentPartIndex: 0,
       hasCJK: this.computeHasCJK(words),
     };
@@ -794,6 +894,32 @@ export class RSVPController extends EventTarget {
       return;
     }
 
+    // Chapter boundary inside the same spine section (e.g. 1984's Parts hold
+    // several TOC chapters): if the next word belongs to a different chapter
+    // and the chapter we're finishing is substantial, pause here and signal a
+    // chapter end. We move into the first word of the new chapter so resuming
+    // continues forward and the next boundary is that chapter's own end.
+    const finishingHref = this.state.words[this.state.currentIndex]?.chapterHref;
+    const nextHref = this.state.words[newIndex]?.chapterHref;
+    if (
+      finishingHref !== nextHref &&
+      this.chapterAnchors.size > 0 &&
+      this.getChapterBounds(this.state.currentIndex).end -
+        this.getChapterBounds(this.state.currentIndex).start +
+        1 >=
+        MIN_CHAPTER_WORDS
+    ) {
+      this.state.currentIndex = newIndex;
+      this.state.currentPartIndex = 0;
+      this.state.playing = false;
+      this.clearTimer();
+      this.emitStateChange();
+      this.dispatchEvent(
+        new CustomEvent('rsvp-chapter-end', { detail: { finishedHref: finishingHref } }),
+      );
+      return;
+    }
+
     this.state.currentIndex = newIndex;
     this.state.currentPartIndex = 0;
     this.emitStateChange();
@@ -841,7 +967,30 @@ export class RSVPController extends EventTarget {
     docIndex: number,
   ): RsvpWord[] {
     const excludeTags = new Set(['SCRIPT', 'STYLE', 'NAV', 'HEADER', 'FOOTER', 'ASIDE']);
+    // Block-level tags whose boundaries produce a visible line break in the
+    // context panel. BR is handled separately (it has no children).
+    const blockTags = new Set([
+      'P',
+      'H1',
+      'H2',
+      'H3',
+      'H4',
+      'H5',
+      'H6',
+      'LI',
+      'BLOCKQUOTE',
+      'PRE',
+      'TD',
+      'TH',
+    ]);
     const words: RsvpWord[] = [];
+    // Tracks which TOC chapter the walk is currently inside; updated whenever
+    // we enter an element whose id matches a TOC #fragment anchor.
+    let currentChapterHref: string | undefined;
+    // Set to true when the next word should begin a new visual block (paragraph,
+    // heading, list item, line break, etc.). Consumed — cleared — by the first
+    // word of each new block so subsequent words in the same block are unaffected.
+    let pendingNewBlock = false;
 
     const walk = (node: Node): void => {
       if (node.nodeType === Node.TEXT_NODE) {
@@ -849,9 +998,19 @@ export class RSVPController extends EventTarget {
         const nodeWords = splitTextIntoWords(text, this.primaryLanguage, this.state.cjkCharMode);
 
         let offset = 0;
+        let firstInNode = true;
         for (const word of nodeWords) {
           const wordStart = text.indexOf(word, offset);
           if (wordStart === -1) continue;
+
+          // Consume the pending-new-block flag on the first word of this text node.
+          // Guard words.length > 0 so the very first word of the section never
+          // gets a spurious leading break in the context panel.
+          const isNewBlock = firstInNode && pendingNewBlock && words.length > 0;
+          if (firstInNode) {
+            pendingNewBlock = false;
+            firstInNode = false;
+          }
 
           try {
             const range = doc.createRange();
@@ -867,12 +1026,16 @@ export class RSVPController extends EventTarget {
               pauseMultiplier: this.getPauseMultiplier(word),
               range,
               docIndex,
+              chapterHref: currentChapterHref,
+              isNewBlock: isNewBlock || undefined,
             });
           } catch {
             words.push({
               text: word,
               orpIndex: this.calculateORP(word),
               pauseMultiplier: this.getPauseMultiplier(word),
+              chapterHref: currentChapterHref,
+              isNewBlock: isNewBlock || undefined,
             });
           }
 
@@ -884,22 +1047,43 @@ export class RSVPController extends EventTarget {
       if (node.nodeType !== Node.ELEMENT_NODE) return;
 
       const el = node as HTMLElement;
-      if (excludeTags.has(el.tagName.toUpperCase())) return;
+      const tag = el.tagName.toUpperCase();
+
+      if (excludeTags.has(tag)) return;
+
+      // <br> has no children — just flag a break and return.
+      if (tag === 'BR') {
+        pendingNewBlock = true;
+        return;
+      }
+
+      // Entering a chapter anchor switches the active chapter for words that
+      // follow (in document order, which equals reading order).
+      if (el.id && this.chapterAnchors.has(el.id)) {
+        currentChapterHref = this.chapterAnchors.get(el.id);
+      }
 
       const style = el.ownerDocument.defaultView?.getComputedStyle(el);
       if (style?.display === 'none' || style?.visibility === 'hidden') return;
 
+      // Flag a new block when entering a block-level element so the first word
+      // inside it gets isNewBlock, and again after walking children so the first
+      // word of the next sibling also starts a new block.
+      if (blockTags.has(tag)) pendingNewBlock = true;
       for (const child of Array.from(el.childNodes)) {
         walk(child);
       }
+      if (blockTags.has(tag)) pendingNewBlock = true;
     };
 
     walk(element);
 
-    // Insert a blank ISI frame between consecutive identical words.
+    // Insert a blank ISI frame between consecutive identical words. The blank
+    // inherits the surrounding word's chapterHref so it doesn't break a
+    // chapter's contiguous run.
     return words.flatMap((word, i) =>
       i + 1 < words.length && word.text === words[i + 1]!.text
-        ? [word, { text: ' ', orpIndex: 0, pauseMultiplier: 0.5 }]
+        ? [word, { text: ' ', orpIndex: 0, pauseMultiplier: 0.5, chapterHref: word.chapterHref }]
         : [word],
     );
   }

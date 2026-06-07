@@ -65,6 +65,7 @@ const buildController = (state: RsvpState) => {
     setCjkCharMode: vi.fn(),
     getWpmOptions: vi.fn(() => [100, 200, 300]),
     getPunctuationPauseOptions: vi.fn(() => [25, 50, 100]),
+    getChapterBounds: vi.fn(() => ({ start: 0, end: Math.max(0, state.words.length - 1) })),
     addEventListener: vi.fn((type: string, listener: EventListener) => {
       if (!listeners.has(type)) listeners.set(type, []);
       listeners.get(type)!.push(listener);

@@ -238,6 +238,11 @@ function embeddingModelIdFor(settings: AISettings): string {
       return settings.aiGatewayEmbeddingModel || 'openai/text-embedding-3-small';
     case 'openrouter':
       return settings.openrouterEmbeddingModel || 'openai/text-embedding-3-small';
+    case 'groq':
+      // Groq has no embeddings endpoint; fall back to a sensible default so
+      // callers that build an embedding model id don't crash (Reedy/RAG is
+      // unsupported on Groq anyway).
+      return 'openai/text-embedding-3-small';
   }
 }
 

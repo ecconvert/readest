@@ -42,6 +42,25 @@ const ComprehensionController: React.FC<ComprehensionControllerProps> = ({
   const lastResult = state.results[state.results.length - 1];
   const isLastQuestion = state.currentIndex === state.questions.length - 1;
 
+  // Check error before the idle early-return: startTest sets phase back to
+  // 'idle' on failure, so an error must be surfaced here or it's swallowed.
+  if (state.error) {
+    return (
+      <div className='fixed inset-0 z-[10001] flex items-center justify-center bg-black/60'>
+        <div className='mx-4 w-full max-w-sm rounded-2xl bg-base-200 p-6 shadow-2xl'>
+          <p className='mb-4 font-semibold text-error'>{_('Could not generate questions')}</p>
+          <p className='mb-4 break-words text-sm opacity-70'>{state.error}</p>
+          <button
+            className='w-full cursor-pointer rounded-xl border border-gray-500/30 bg-transparent px-4 py-3 font-medium'
+            onClick={dismiss}
+          >
+            {_('Close')}
+          </button>
+        </div>
+      </div>
+    );
+  }
+
   if (state.phase === 'idle') return null;
 
   if (state.phase === 'generating') {
@@ -57,23 +76,6 @@ const ComprehensionController: React.FC<ComprehensionControllerProps> = ({
 
   if (state.phase === 'offering') {
     return <ComprehensionOfferDialog onAccept={() => void startTest()} onDecline={dismiss} />;
-  }
-
-  if (state.error) {
-    return (
-      <div className='fixed inset-0 z-[10001] flex items-center justify-center bg-black/60'>
-        <div className='mx-4 w-full max-w-sm rounded-2xl bg-base-200 p-6 shadow-2xl'>
-          <p className='mb-4 font-semibold text-error'>{_('Could not generate questions')}</p>
-          <p className='mb-4 text-sm opacity-70'>{state.error}</p>
-          <button
-            className='w-full cursor-pointer rounded-xl border border-gray-500/30 bg-transparent px-4 py-3 font-medium'
-            onClick={dismiss}
-          >
-            {_('Close')}
-          </button>
-        </div>
-      </div>
-    );
   }
 
   if (state.phase === 'question' && currentQuestion) {
@@ -99,7 +101,14 @@ const ComprehensionController: React.FC<ComprehensionControllerProps> = ({
   }
 
   if (state.phase === 'results') {
-    return <ComprehensionResultsDialog results={state.results} onMore={more} onClose={dismiss} />;
+    return (
+      <ComprehensionResultsDialog
+        results={state.results}
+        lastPrompt={state.lastPrompt}
+        onMore={more}
+        onClose={dismiss}
+      />
+    );
   }
 
   return null;

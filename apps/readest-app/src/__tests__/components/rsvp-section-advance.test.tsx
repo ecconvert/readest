@@ -13,16 +13,27 @@ import { eventDispatcher } from '@/utils/event';
 let primaryIndex = 4;
 const viewRelocateListeners: EventListener[] = [];
 const loadedSections: number[] = [];
+const loadedTargets: Array<string | undefined> = [];
 const controllerEventListeners = new Map<string, EventListener[]>();
 let capturedOnRequestNextPage: (() => Promise<void>) | null = null;
+let capturedOnChapterSelect: ((href: string) => void) | null = null;
 
 // ---------- Mocks ----------
 
 vi.mock('@/app/reader/components/rsvp/RSVPOverlay', () => ({
-  default: vi.fn(({ onRequestNextPage }: { onRequestNextPage: () => Promise<void> }) => {
-    capturedOnRequestNextPage = onRequestNextPage;
-    return null;
-  }),
+  default: vi.fn(
+    ({
+      onRequestNextPage,
+      onChapterSelect,
+    }: {
+      onRequestNextPage: () => Promise<void>;
+      onChapterSelect: (href: string) => void;
+    }) => {
+      capturedOnRequestNextPage = onRequestNextPage;
+      capturedOnChapterSelect = onChapterSelect;
+      return null;
+    },
+  ),
 }));
 
 vi.mock('@/app/reader/components/rsvp/RSVPStartDialog', () => ({
@@ -73,6 +84,9 @@ vi.mock('@/services/rsvp', () => ({
     return {
       seedPosition: vi.fn(),
       setCurrentCfi: vi.fn(),
+      setToc: vi.fn(),
+      getCurrentChapterWords: vi.fn(() => []),
+      getChapterWordsAt: vi.fn(() => []),
       requestStart: vi.fn(() => {
         const event = new CustomEvent('rsvp-start-choice', {
           detail: { hasSavedPosition: false, hasSelection: false },
@@ -81,8 +95,9 @@ vi.mock('@/services/rsvp', () => ({
       }),
       startFromCurrentPosition: vi.fn(),
       stop: vi.fn(),
-      loadNextPageContent: vi.fn(() => {
+      loadNextPageContent: vi.fn((_retryCount?: number, targetChapterHref?: string) => {
         loadedSections.push(primaryIndex);
+        loadedTargets.push(targetChapterHref);
       }),
       getStoredPosition: vi.fn(() => null),
       get currentState() {
@@ -136,6 +151,7 @@ const mockView = {
     }),
     getContents: vi.fn(() => []),
   },
+  goTo: vi.fn(),
   addEventListener: vi.fn((type: string, listener: EventListener) => {
     if (type === 'relocate') viewRelocateListeners.push(listener);
   }),
@@ -157,12 +173,16 @@ describe('RSVPControl — section advance tracking', () => {
   beforeEach(() => {
     primaryIndex = 4;
     loadedSections.length = 0;
+    loadedTargets.length = 0;
     viewRelocateListeners.length = 0;
     controllerEventListeners.clear();
     capturedOnRequestNextPage = null;
+    capturedOnChapterSelect = null;
+    vi.useRealTimers();
   });
 
   afterEach(() => {
+    vi.useRealTimers();
     cleanup();
   });
 
@@ -199,5 +219,29 @@ describe('RSVPControl — section advance tracking', () => {
 
     expect(loadedSections).toEqual([5, 6]);
     expect(mockView.renderer.goTo).toHaveBeenNthCalledWith(2, { index: 6 });
+  });
+
+  test('loads selected chapter anchor when same-section navigation does not relocate', async () => {
+    render(
+      <RSVPControl bookKey='test-book' gridInsets={{ top: 0, bottom: 0, left: 0, right: 0 }} />,
+    );
+
+    await act(async () => {
+      eventDispatcher.dispatch('rsvp-start', { bookKey: 'test-book' });
+      await new Promise<void>((r) => setTimeout(r, 20));
+    });
+
+    expect(capturedOnChapterSelect).not.toBeNull();
+
+    vi.useFakeTimers();
+    const href = 'OEBPS/16954_split_000.xhtml#chapter-3';
+
+    act(() => {
+      capturedOnChapterSelect!(href);
+      vi.advanceTimersByTime(301);
+    });
+
+    expect(mockView.goTo).toHaveBeenCalledWith(href);
+    expect(loadedTargets.at(-1)).toBe(href);
   });
 });

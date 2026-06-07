@@ -38,7 +38,7 @@ export const metadata: Metadata = {
   appleWebApp: {
     capable: true,
     title: 'Readest',
-    statusBarStyle: 'default',
+    statusBarStyle: 'black-translucent',
   },
   openGraph: {
     type: 'website',
@@ -129,6 +129,18 @@ const devHmrPatchScript = `(${patchTauriHmrWebSocket.toString()})(${JSON.stringi
 // consumers fall back to `NEXT_PUBLIC_*` envs baked at build time on Tauri.
 const shouldInjectRuntimeConfig = process.env['NEXT_PUBLIC_APP_PLATFORM'] === 'web';
 
+// Polyfill window.__TAURI_INTERNALS__ so @tauri-apps/* plugins don't crash
+// when the app is served from a plain web server (no Tauri runtime present).
+const tauriPolyfillScript = `
+if (typeof window !== 'undefined' && !window.__TAURI_INTERNALS__) {
+  window.__TAURI_INTERNALS__ = {
+    invoke: function() { return Promise.resolve(null); },
+    transformCallback: function() { return 0; },
+    metadata: {}
+  };
+}
+`;
+
 export default function RootLayout({ children }: { children: React.ReactNode }) {
   return (
     <html
@@ -136,6 +148,7 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
       className={process.env['NEXT_PUBLIC_APP_PLATFORM'] === 'tauri' ? 'edge-to-edge' : ''}
     >
       <head>
+        <script dangerouslySetInnerHTML={{ __html: tauriPolyfillScript }} />
         {shouldInjectRuntimeConfig ? (
           <Script src='/runtime-config.js' strategy='beforeInteractive' />
         ) : null}
