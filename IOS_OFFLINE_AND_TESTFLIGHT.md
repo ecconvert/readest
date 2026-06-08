@@ -48,6 +48,15 @@ script.
 Best long-term workflow for an app you maintain solo: upload once, then push
 updates OTA; installs like a normal App Store app and is fully offline.
 
+> **Private use only (Jose + wife).** This app is NOT going to the public App
+> Store — TestFlight is just the delivery channel. No App Store review, no public
+> listing, no screenshots/metadata. Caveats: TestFlight builds **expire after 90
+> days** (re-upload to refresh), and each tester installs the **TestFlight app**
+> and accepts an invite. Add your wife either as an **internal tester** (instant,
+> no review — requires giving her an App Store Connect role) or an **external
+> tester** (added by email, no team role, but the first build needs a quick
+> lightweight Beta App Review — not the full App Store review).
+
 ### One-time setup (human — the agent can't do these)
 1. **App Store Connect app record:** https://appstoreconnect.apple.com → Apps → +
    → New App. Platform iOS, bundle ID `com.ecconvert.readest`, pick an SKU/name.
