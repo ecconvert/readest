@@ -3,8 +3,9 @@
 import React, { useState } from 'react';
 import { useThemeStore } from '@/store/themeStore';
 import { useTranslation } from '@/hooks/useTranslation';
-import { IoCheckmarkCircle, IoCloseCircle } from 'react-icons/io5';
+import { IoCheckmarkCircle, IoCloseCircle, IoRemoveCircle } from 'react-icons/io5';
 import { MdBugReport } from 'react-icons/md';
+import { scoreResults } from '@/services/comprehension';
 import type { ComprehensionResult } from '@/services/comprehension';
 
 const OPTION_LABELS = ['A', 'B', 'C', 'D'] as const;
@@ -33,7 +34,7 @@ const ComprehensionResultsDialog: React.FC<ComprehensionResultsDialogProps> = ({
 
   const [showDebug, setShowDebug] = useState(false);
 
-  const score = results.filter((r) => r.isCorrect).length;
+  const { score, total } = scoreResults(results);
 
   return (
     <div
@@ -55,7 +56,7 @@ const ComprehensionResultsDialog: React.FC<ComprehensionResultsDialogProps> = ({
               {_('Results')}
             </h2>
             <p className='text-3xl font-bold' style={{ color: accentColor }}>
-              {score} / {results.length}
+              {score} / {total}
             </p>
           </div>
           {lastPrompt && (
@@ -86,29 +87,55 @@ const ComprehensionResultsDialog: React.FC<ComprehensionResultsDialogProps> = ({
         {/* Scrollable results list */}
         <div className='flex-1 overflow-y-auto px-6 py-4'>
           <div className='flex flex-col gap-4'>
-            {results.map((r, i) => (
-              <div key={i} className='rounded-xl bg-gray-500/10 p-4'>
-                <div className='mb-2 flex items-start gap-2'>
-                  {r.isCorrect ? (
-                    <IoCheckmarkCircle size={18} color={correctColor} className='mt-0.5 shrink-0' />
-                  ) : (
-                    <IoCloseCircle size={18} color={wrongColor} className='mt-0.5 shrink-0' />
+            {results.map((r, i) => {
+              const isVoid = r.override === 'void';
+              const isCounted = r.override === 'correct' || (!isVoid && r.isCorrect);
+              return (
+                <div key={i} className='rounded-xl bg-gray-500/10 p-4'>
+                  <div className='mb-2 flex items-start gap-2'>
+                    {isVoid ? (
+                      <IoRemoveCircle
+                        size={18}
+                        color={fgColor}
+                        className='mt-0.5 shrink-0 opacity-40'
+                      />
+                    ) : isCounted ? (
+                      <IoCheckmarkCircle
+                        size={18}
+                        color={correctColor}
+                        className='mt-0.5 shrink-0'
+                      />
+                    ) : (
+                      <IoCloseCircle size={18} color={wrongColor} className='mt-0.5 shrink-0' />
+                    )}
+                    <p className='text-sm font-semibold leading-snug'>{r.question}</p>
+                  </div>
+                  {r.override === 'correct' && (
+                    <p className='mb-1 text-xs font-medium' style={{ color: correctColor }}>
+                      {_('Marked correct')}
+                    </p>
                   )}
-                  <p className='text-sm font-semibold leading-snug'>{r.question}</p>
-                </div>
-                <p className='mb-1 text-xs opacity-60'>
-                  {_('Your answer: ')}
-                  {OPTION_LABELS[r.chosen]}. {r.options[r.chosen]}
-                </p>
-                {!r.isCorrect && (
-                  <p className='mb-1 text-xs' style={{ color: correctColor }}>
-                    {_('Correct: ')}
-                    {OPTION_LABELS[r.correct]}. {r.options[r.correct]}
+                  {isVoid && (
+                    <p className='mb-1 text-xs font-medium opacity-50'>
+                      {_('Thrown out — not scored')}
+                    </p>
+                  )}
+                  <p className='mb-1 text-xs opacity-60'>
+                    {_('Your answer: ')}
+                    {OPTION_LABELS[r.chosen]}. {r.options[r.chosen]}
                   </p>
-                )}
-                {r.explanation && <p className='mt-1 text-xs opacity-50 italic'>{r.explanation}</p>}
-              </div>
-            ))}
+                  {!r.isCorrect && (
+                    <p className='mb-1 text-xs' style={{ color: correctColor }}>
+                      {_('Correct: ')}
+                      {OPTION_LABELS[r.correct]}. {r.options[r.correct]}
+                    </p>
+                  )}
+                  {r.explanation && (
+                    <p className='mt-1 text-xs opacity-50 italic'>{r.explanation}</p>
+                  )}
+                </div>
+              );
+            })}
           </div>
         </div>
 

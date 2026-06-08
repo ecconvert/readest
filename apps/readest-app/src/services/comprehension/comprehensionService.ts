@@ -177,6 +177,16 @@ Decide whether the marked answer (${OPTION_LABELS[result.correct]}) is actually 
   return text.trim();
 }
 
+// Score a result set, honoring the reader's manual overrides: a 'void'
+// question is dropped from both numerator and denominator; a 'correct' override
+// counts toward the score even if originally graded wrong. Used for the live
+// score and the persisted session so they always agree.
+export function scoreResults(results: ComprehensionResult[]): { score: number; total: number } {
+  const counted = results.filter((r) => r.override !== 'void');
+  const score = counted.filter((r) => r.override === 'correct' || r.isCorrect).length;
+  return { score, total: counted.length };
+}
+
 export function saveSession(bookHash: string, session: ComprehensionSession): void {
   try {
     const key = STORAGE_KEY_PREFIX + bookHash;

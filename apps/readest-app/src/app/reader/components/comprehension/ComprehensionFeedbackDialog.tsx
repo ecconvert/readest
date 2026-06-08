@@ -16,6 +16,7 @@ interface ComprehensionFeedbackDialogProps {
   onReview: (result: ComprehensionResult) => void;
   reviewText: string | null;
   reviewLoading: boolean;
+  onOverride: (override: 'correct' | 'void' | null) => void;
 }
 
 const ComprehensionFeedbackDialog: React.FC<ComprehensionFeedbackDialogProps> = ({
@@ -26,6 +27,7 @@ const ComprehensionFeedbackDialog: React.FC<ComprehensionFeedbackDialogProps> = 
   onReview,
   reviewText,
   reviewLoading,
+  onOverride,
 }) => {
   const _ = useTranslation();
   const { themeCode, isDarkMode } = useThemeStore();
@@ -93,6 +95,54 @@ const ComprehensionFeedbackDialog: React.FC<ComprehensionFeedbackDialogProps> = 
               >
                 {reviewLoading ? _('Reviewing…') : _('Ask AI to review this question')}
               </button>
+            )}
+          </div>
+        )}
+
+        {/* Manual score override — you decide, not the reviewer. */}
+        {!result.isCorrect && (
+          <div className='mb-5'>
+            {result.override === 'correct' ? (
+              <div className='flex items-center justify-between rounded-xl bg-gray-500/10 px-4 py-2 text-sm'>
+                <span className='font-semibold' style={{ color: correctColor }}>
+                  {_('Marked correct — counts toward your score')}
+                </span>
+                <button
+                  className='cursor-pointer rounded-lg px-2 py-1 text-xs font-medium underline opacity-70 hover:opacity-100'
+                  style={{ color: fgColor }}
+                  onClick={() => onOverride(null)}
+                >
+                  {_('Undo')}
+                </button>
+              </div>
+            ) : result.override === 'void' ? (
+              <div className='flex items-center justify-between rounded-xl bg-gray-500/10 px-4 py-2 text-sm'>
+                <span className='font-semibold opacity-70'>{_('Thrown out — not scored')}</span>
+                <button
+                  className='cursor-pointer rounded-lg px-2 py-1 text-xs font-medium underline opacity-70 hover:opacity-100'
+                  style={{ color: fgColor }}
+                  onClick={() => onOverride(null)}
+                >
+                  {_('Undo')}
+                </button>
+              </div>
+            ) : (
+              <div className='flex gap-2'>
+                <button
+                  className='eink-bordered flex-1 cursor-pointer rounded-xl border border-gray-500/30 bg-transparent px-3 py-2 text-sm font-medium transition-colors hover:bg-gray-500/10'
+                  style={{ color: fgColor }}
+                  onClick={() => onOverride('correct')}
+                >
+                  {_('Mark correct')}
+                </button>
+                <button
+                  className='eink-bordered flex-1 cursor-pointer rounded-xl border border-gray-500/30 bg-transparent px-3 py-2 text-sm font-medium transition-colors hover:bg-gray-500/10'
+                  style={{ color: fgColor }}
+                  onClick={() => onOverride('void')}
+                >
+                  {_('Throw out')}
+                </button>
+              </div>
             )}
           </div>
         )}

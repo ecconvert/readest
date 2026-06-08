@@ -29,12 +29,8 @@ const ComprehensionController: React.FC<ComprehensionControllerProps> = ({
   onClosed,
 }) => {
   const _ = useTranslation();
-  const { state, offer, startTest, answer, next, more, review, dismiss } = useComprehension(
-    bookHash,
-    bookTitle,
-    authorName,
-    aiSettings,
-  );
+  const { state, offer, startTest, answer, next, more, review, overrideResult, dismiss } =
+    useComprehension(bookHash, bookTitle, authorName, aiSettings);
 
   // Register the offer function so RSVPControl can trigger it
   React.useEffect(() => {
@@ -108,6 +104,7 @@ const ComprehensionController: React.FC<ComprehensionControllerProps> = ({
         onReview={review}
         reviewText={state.reviewText}
         reviewLoading={state.reviewLoading}
+        onOverride={overrideResult}
       />
     );
   }

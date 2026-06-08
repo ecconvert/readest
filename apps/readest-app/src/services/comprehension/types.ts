@@ -12,6 +12,14 @@ export interface ComprehensionResult {
   chosen: number;
   explanation: string;
   isCorrect: boolean;
+  /**
+   * Manual score override the reader applied after seeing the feedback (e.g.
+   * the AI review found the question mis-keyed): `'correct'` counts it toward
+   * the score regardless of `isCorrect`; `'void'` excludes it from the score
+   * entirely (dropped from both numerator and denominator). Undefined = no
+   * override, use `isCorrect` as graded.
+   */
+  override?: 'correct' | 'void';
 }
 
 export interface ComprehensionSession {

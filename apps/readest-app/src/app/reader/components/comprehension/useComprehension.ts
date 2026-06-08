@@ -1,7 +1,12 @@
 'use client';
 
 import { useState, useCallback } from 'react';
-import { generateQuestions, reviewQuestion, saveSession } from '@/services/comprehension';
+import {
+  generateQuestions,
+  reviewQuestion,
+  saveSession,
+  scoreResults,
+} from '@/services/comprehension';
 import type { ComprehensionQuestion, ComprehensionResult } from '@/services/comprehension';
 import type { AISettings } from '@/services/ai/types';
 
@@ -107,13 +112,14 @@ export function useComprehension(
     setState((s) => {
       const nextIndex = s.currentIndex + 1;
       if (nextIndex >= s.questions.length) {
-        // Save to localStorage before showing results
-        const score = s.results.filter((r) => r.isCorrect).length;
+        // Save to localStorage before showing results, honoring any manual
+        // score overrides the reader applied on the feedback screen.
+        const { score, total } = scoreResults(s.results);
         saveSession(bookHash, {
           bookHash,
           timestamp: Date.now(),
           score,
-          total: s.results.length,
+          total,
           results: s.results,
         });
         return { ...s, phase: 'results', reviewText: null, reviewLoading: false };
@@ -148,6 +154,18 @@ export function useComprehension(
     [aiSettings, sessionWords, bookTitle, authorName],
   );
 
+  // Manually overturn or void the question currently shown on the feedback
+  // screen (it's always the most recent result). Pass null to undo.
+  const overrideResult = useCallback((override: 'correct' | 'void' | null) => {
+    setState((s) => {
+      if (s.results.length === 0) return s;
+      const results = s.results.slice();
+      const last = results[results.length - 1]!;
+      results[results.length - 1] = { ...last, override: override ?? undefined };
+      return { ...s, results };
+    });
+  }, []);
+
   const more = useCallback(() => {
     setState((s) => ({ ...s, phase: 'generating', reviewText: null, reviewLoading: false }));
     // Pull current results from state to pass as prior — use functional update
@@ -161,5 +179,5 @@ export function useComprehension(
     setState(INITIAL_STATE);
   }, []);
 
-  return { state, offer, startTest, answer, next, more, review, dismiss };
+  return { state, offer, startTest, answer, next, more, review, overrideResult, dismiss };
 }
