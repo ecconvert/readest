@@ -6,6 +6,7 @@ import { useRouter, useSearchParams } from 'next/navigation';
 import { Book } from '@/types/book';
 import { useEnv } from '@/context/EnvContext';
 import { useSettingsStore } from '@/store/settingsStore';
+import { useLibraryStore } from '@/store/libraryStore';
 import { useBookDataStore } from '@/store/bookDataStore';
 import { useReaderStore } from '@/store/readerStore';
 import { useSidebarStore } from '@/store/sidebarStore';
@@ -62,6 +63,21 @@ const ReaderContent: React.FC<{ ids?: string; settings: SystemSettings }> = ({ i
   const [loading, setLoading] = useState(false);
   const [errorLoading, setErrorLoading] = useState(false);
 
+  const resolveLatestBookId = () => {
+    const { settings } = useSettingsStore.getState();
+    const { getBookByHash, visibleLibrary } = useLibraryStore.getState();
+    const lastOpenBook = settings.lastOpenBooks?.find((id) => {
+      const book = getBookByHash(id);
+      return book && !book.deletedAt;
+    });
+    if (lastOpenBook) return lastOpenBook;
+
+    return visibleLibrary
+      .slice()
+      .sort((a, b) => (b.updatedAt || b.createdAt || 0) - (a.updatedAt || a.createdAt || 0))[0]
+      ?.hash;
+  };
+
   useBookShortcuts({ sideBarBookKey, bookKeys });
   useGamepad();
 
@@ -74,7 +90,7 @@ const ReaderContent: React.FC<{ ids?: string; settings: SystemSettings }> = ({ i
     // Deep-link sentinel: `/reader/latest` (used by the speed-read shortcut)
     // resolves to the most recently opened book.
     if (bookIds === 'latest') {
-      bookIds = useSettingsStore.getState().settings.lastOpenBooks?.[0] ?? '';
+      bookIds = resolveLatestBookId() ?? '';
     }
     const initialIds = bookIds.split(BOOK_IDS_SEPARATOR).filter(Boolean);
     const initialBookKeys = initialIds.map((id) => `${id}-${uniqueId()}`);

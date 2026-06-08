@@ -10,6 +10,8 @@ import UIKit
 import UniformTypeIdentifiers
 import WebKit
 
+private let speedReadLatestShortcutType = "com.ecconvert.readest.speed-read-latest"
+private let speedReadLatestShortcutURL = "tauri://localhost/reader?ids=latest&rsvp=resume"
 
 func getLocalizedDisplayName(familyName: String) -> String? {
   let fontDescriptor = CTFontDescriptorCreateWithAttributes(
@@ -458,15 +460,55 @@ extension WebViewLifecycleManager: WKNavigationDelegate {
 
 class NativeBridgePlugin: Plugin {
   private var webView: WKWebView?
+  private var pendingShortcutURL: String?
   private var authSession: ASWebAuthenticationSession?
   private var currentOrientationMask: UIInterfaceOrientationMask = .all
   private var originalDelegate: UIApplicationDelegate?
   private var webViewLifecycleManager: WebViewLifecycleManager?
   private var traitChangeRegistered = false
 
+  private func navigateWebView(to rawURL: String) -> Bool {
+    guard let url = URL(string: rawURL) else { return false }
+    guard let webView = self.webView else {
+      pendingShortcutURL = rawURL
+      return true
+    }
+
+    let route = "\(url.path)\(url.query.map { "?\($0)" } ?? "")"
+    guard let routeData = try? JSONSerialization.data(withJSONObject: [route]),
+      let routeJSON = String(data: routeData, encoding: .utf8)
+    else {
+      return false
+    }
+
+    DispatchQueue.main.async {
+      webView.evaluateJavaScript("window.location.assign(\(routeJSON)[0]);") { _, error in
+        if let error = error {
+          print("NativeBridgePlugin: shortcut JS navigation failed: \(error)")
+          webView.load(URLRequest(url: url))
+        }
+      }
+    }
+    return true
+  }
+
+  private func handleShortcutItem(_ shortcutItem: UIApplicationShortcutItem) -> Bool {
+    guard shortcutItem.type == speedReadLatestShortcutType else { return false }
+    let targetURL = shortcutItem.userInfo?["url"] as? String ?? speedReadLatestShortcutURL
+    print("NativeBridgePlugin: handling shortcut \(shortcutItem.type) -> \(targetURL)")
+    return navigateWebView(to: targetURL)
+  }
+
   @objc public override func load(webview: WKWebView) {
     self.webView = webview
     print("NativeBridgePlugin loaded")
+
+    if let pendingShortcutURL = pendingShortcutURL {
+      self.pendingShortcutURL = nil
+      DispatchQueue.main.asyncAfter(deadline: .now() + 1.0) { [weak self] in
+        _ = self?.navigateWebView(to: pendingShortcutURL)
+      }
+    }
 
     // Suppress the iOS system text-selection edit menu so it never
     // covers Readest's annotation toolbar. See ContextMenuSuppressor.
@@ -1682,6 +1724,7 @@ extension NativeBridgePlugin: UIApplicationDelegate {
       sel!(application:didFinishLaunchingWithOptions:),
       sel!(application:openURL:options:),
       sel!(application:continue:restorationHandler:),
+      sel!(application:performActionForShortcutItem:completionHandler:),
       sel!(applicationDidBecomeActive:),
       sel!(applicationWillResignActive:),
       sel!(applicationWillEnterForeground:),
@@ -1693,8 +1736,15 @@ extension NativeBridgePlugin: UIApplicationDelegate {
     _ application: UIApplication,
     didFinishLaunchingWithOptions launchOptions: [UIApplication.LaunchOptionsKey: Any]?
   ) -> Bool {
-    self.originalDelegate?.application?(application, didFinishLaunchingWithOptions: launchOptions)
+    let originalResult =
+      self.originalDelegate?.application?(application, didFinishLaunchingWithOptions: launchOptions)
       ?? false
+    if let shortcutItem = launchOptions?[.shortcutItem] as? UIApplicationShortcutItem,
+      handleShortcutItem(shortcutItem)
+    {
+      return false
+    }
+    return originalResult
   }
 
   public func application(
@@ -1710,6 +1760,28 @@ extension NativeBridgePlugin: UIApplicationDelegate {
   ) -> Bool {
     self.originalDelegate?.application?(
       application, continue: continueUserActivity, restorationHandler: restorationHandler) ?? false
+  }
+
+  public func application(
+    _ application: UIApplication,
+    performActionFor shortcutItem: UIApplicationShortcutItem,
+    completionHandler: @escaping (Bool) -> Void
+  ) {
+    if handleShortcutItem(shortcutItem) {
+      completionHandler(true)
+      return
+    }
+
+    if self.originalDelegate?.responds(
+      to: #selector(
+        UIApplicationDelegate.application(
+          _:performActionFor:completionHandler:))
+    ) == true {
+      self.originalDelegate?.application?(
+        application, performActionFor: shortcutItem, completionHandler: completionHandler)
+    } else {
+      completionHandler(false)
+    }
   }
 
   public func applicationDidBecomeActive(_ application: UIApplication) {

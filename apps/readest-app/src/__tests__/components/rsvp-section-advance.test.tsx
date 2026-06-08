@@ -22,6 +22,9 @@ let capturedOnChapterSelect: ((href: string) => void) | null = null;
 let capturedOnQuiz: (() => void) | null = null;
 let capturedComprehensionOnClosed: (() => void) | null = null;
 let comprehensionOffer: Mock<(words: string[]) => void> | null = null;
+// Controls the `hasSavedPosition` flag the mock controller reports from
+// requestStart(). Default false so existing tests auto-start unchanged.
+let mockHasSavedPosition = false;
 
 // ---------- Mocks ----------
 
@@ -118,11 +121,13 @@ vi.mock('@/services/rsvp', () => ({
       getChapterWordsAt: vi.fn(() => []),
       requestStart: vi.fn(() => {
         const event = new CustomEvent('rsvp-start-choice', {
-          detail: { hasSavedPosition: false, hasSelection: false },
+          detail: { hasSavedPosition: mockHasSavedPosition, hasSelection: false },
         });
         (controllerEventListeners.get('rsvp-start-choice') ?? []).forEach((h) => h(event));
       }),
       startFromCurrentPosition: vi.fn(),
+      startFromSavedPosition: vi.fn(),
+      start: vi.fn(),
       pause: vi.fn(),
       resume: vi.fn(),
       stop: vi.fn(),
@@ -212,6 +217,7 @@ describe('RSVPControl — section advance tracking', () => {
     capturedOnQuiz = null;
     capturedComprehensionOnClosed = null;
     comprehensionOffer = null;
+    mockHasSavedPosition = false;
     vi.useRealTimers();
   });
 
@@ -316,5 +322,47 @@ describe('RSVPControl — section advance tracking', () => {
 
     expect(controller.resume).toHaveBeenCalledTimes(1);
     expect(controller.stop).not.toHaveBeenCalled();
+  });
+
+  test('autoStart resume uses saved RSVP position when one exists (not current reader position)', async () => {
+    mockHasSavedPosition = true;
+    render(
+      <RSVPControl bookKey='test-book' gridInsets={{ top: 0, bottom: 0, left: 0, right: 0 }} />,
+    );
+
+    await act(async () => {
+      eventDispatcher.dispatch('rsvp-start', { bookKey: 'test-book', autoStart: 'resume' });
+      await new Promise<void>((r) => setTimeout(r, 20));
+    });
+
+    const controller = vi.mocked(RSVPController).mock.results.at(-1)!.value as {
+      startFromSavedPosition: ReturnType<typeof vi.fn>;
+      startFromCurrentPosition: ReturnType<typeof vi.fn>;
+    };
+
+    // Resuming from the shortcut must use the exact saved RSVP word position,
+    // not the reader's current page (which would start a chapter behind).
+    expect(controller.startFromSavedPosition).toHaveBeenCalledTimes(1);
+    expect(controller.startFromCurrentPosition).not.toHaveBeenCalled();
+  });
+
+  test('autoStart resume falls back to current position when no saved RSVP position', async () => {
+    mockHasSavedPosition = false;
+    render(
+      <RSVPControl bookKey='test-book' gridInsets={{ top: 0, bottom: 0, left: 0, right: 0 }} />,
+    );
+
+    await act(async () => {
+      eventDispatcher.dispatch('rsvp-start', { bookKey: 'test-book', autoStart: 'resume' });
+      await new Promise<void>((r) => setTimeout(r, 20));
+    });
+
+    const controller = vi.mocked(RSVPController).mock.results.at(-1)!.value as {
+      startFromSavedPosition: ReturnType<typeof vi.fn>;
+      startFromCurrentPosition: ReturnType<typeof vi.fn>;
+    };
+
+    expect(controller.startFromCurrentPosition).toHaveBeenCalledTimes(1);
+    expect(controller.startFromSavedPosition).not.toHaveBeenCalled();
   });
 });

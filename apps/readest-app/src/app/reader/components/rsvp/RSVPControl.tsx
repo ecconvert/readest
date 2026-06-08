@@ -276,8 +276,36 @@ const RSVPControl: React.FC<RSVPControlProps> = ({ bookKey, gridInsets }) => {
 
         // Deep-link / shortcut entry: skip the dialog and start immediately.
         if (autoStart === 'resume') {
-          controller.startFromCurrentPosition();
-          setIsActive(true);
+          if (!choice.hasSavedPosition) {
+            controller.startFromCurrentPosition();
+            setIsActive(true);
+            return;
+          }
+
+          const handleNavigateToResume = (event: Event) => {
+            const { cfi } = (event as CustomEvent<{ cfi: string }>).detail;
+            controller.removeEventListener('rsvp-navigate-to-resume', handleNavigateToResume);
+
+            if (!view || !cfi) return;
+            view.goTo(cfi);
+            setTimeout(() => {
+              const progress = getProgress(bookKey);
+              if (progress?.location) {
+                controller.setCurrentCfi(progress.location);
+              }
+              controller.start();
+              setIsActive(true);
+            }, 500);
+          };
+
+          controller.addEventListener('rsvp-navigate-to-resume', handleNavigateToResume);
+          controller.startFromSavedPosition();
+          if (controller.currentState.active) {
+            setIsActive(true);
+          }
+          setTimeout(() => {
+            controller.removeEventListener('rsvp-navigate-to-resume', handleNavigateToResume);
+          }, 1000);
           return;
         }
         if (autoStart === 'beginning') {

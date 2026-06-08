@@ -43,6 +43,22 @@
     </array>
     <key>LSSupportsOpeningDocumentsInPlace</key>
     <true/>
+    <key>UIApplicationShortcutItems</key>
+    <array>
+      <dict>
+        <key>UIApplicationShortcutItemType</key>
+        <string>com.ecconvert.readest.speed-read-latest</string>
+        <key>UIApplicationShortcutItemTitle</key>
+        <string>Speed Read Latest</string>
+        <key>UIApplicationShortcutItemIconType</key>
+        <string>UIApplicationShortcutIconTypePlay</string>
+        <key>UIApplicationShortcutItemUserInfo</key>
+        <dict>
+          <key>url</key>
+          <string>tauri://localhost/reader?ids=latest&amp;rsvp=resume</string>
+        </dict>
+      </dict>
+    </array>
     <key>CFBundleURLTypes</key>
     <array>
       <dict>
