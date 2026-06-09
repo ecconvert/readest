@@ -106,6 +106,11 @@ const ViewMenu: React.FC<ViewMenuProps> = ({
     eventDispatcher.dispatch('rsvp-start', { bookKey });
   };
 
+  const handleStartComprehension = () => {
+    setIsDropdownOpen?.(false);
+    eventDispatcher.dispatch('comprehension-start', { bookKey });
+  };
+
   const handleShare = () => {
     setIsDropdownOpen?.(false);
     if (!bookData?.book) return;
@@ -302,6 +307,12 @@ const ViewMenu: React.FC<ViewMenuProps> = ({
         shortcut='Shift+J'
         Icon={isScrolledMode ? MdCheck : undefined}
         onClick={toggleScrolledMode}
+      />
+
+      <MenuItem
+        label={_('Comprehension Quiz')}
+        onClick={handleStartComprehension}
+        disabled={bookData.isFixedLayout}
       />
 
       <hr aria-hidden='true' className='border-base-300 my-1' />

@@ -125,7 +125,13 @@ export class RSVPController extends EventTarget {
   // Bounds [start, end] of the contiguous run of words sharing the chapter of
   // words[index]. Falls back to the whole word list when chapters are unknown.
   getChapterBounds(index: number): { start: number; end: number } {
-    const words = this.state.words;
+    return this.getChapterBoundsInWords(this.state.words, index);
+  }
+
+  private getChapterBoundsInWords(
+    words: RsvpWord[],
+    index: number,
+  ): { start: number; end: number } {
     if (words.length === 0) return { start: 0, end: 0 };
     const i = Math.max(0, Math.min(words.length - 1, index));
     const href = words[i]?.chapterHref;
@@ -140,8 +146,12 @@ export class RSVPController extends EventTarget {
   // Caps at index so mid-chapter quiz prompts only include what was actually
   // read, not future chapter content.
   getChapterWordsAt(index: number): string[] {
-    const { start } = this.getChapterBounds(index);
-    return this.state.words
+    return this.getChapterWordsInWords(this.state.words, index);
+  }
+
+  private getChapterWordsInWords(words: RsvpWord[], index: number): string[] {
+    const { start } = this.getChapterBoundsInWords(words, index);
+    return words
       .slice(start, index + 1)
       .map((w) => w.text)
       .filter((t) => t.trim().length > 0);
@@ -150,6 +160,22 @@ export class RSVPController extends EventTarget {
   // Words of the chapter currently being read.
   getCurrentChapterWords(): string[] {
     return this.getChapterWordsAt(this.state.currentIndex);
+  }
+
+  // Words from the start of the chapter containing `cfi` through that CFI.
+  // Used by normal reading mode so a quiz near a chapter boundary follows the
+  // current viewport anchor without starting RSVP playback.
+  getCurrentChapterWordsAtCfi(cfi: string | null | undefined): string[] {
+    const words = this.extractWordsWithRanges();
+    if (words.length === 0) return [];
+
+    let index = 0;
+    if (cfi) {
+      const cfiIndex = this.findWordIndexByCfi(words, cfi);
+      if (cfiIndex >= 0) index = cfiIndex;
+    }
+
+    return this.getChapterWordsInWords(words, index);
   }
 
   private loadSettings(): void {

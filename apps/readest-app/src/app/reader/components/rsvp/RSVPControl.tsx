@@ -18,6 +18,7 @@ import { useTranslation } from '@/hooks/useTranslation';
 import { BookNote, PageInfo } from '@/types/book';
 import { TOCItem } from '@/libs/document';
 import { Insets } from '@/types/misc';
+import type { FoliateView } from '@/types/view';
 import { initJieba } from '@/utils/jieba';
 import RSVPOverlay from './RSVPOverlay';
 import RSVPStartDialog from './RSVPStartDialog';
@@ -111,6 +112,55 @@ const expandRangeToSentence = (range: Range, doc: Document): Range => {
   return range;
 };
 
+const findPositionAtPoint = (doc: Document, x: number, y: number) => {
+  if (doc.caretPositionFromPoint) {
+    const pos = doc.caretPositionFromPoint(x, y);
+    if (pos) return { node: pos.offsetNode, offset: pos.offset };
+  }
+  if (doc.caretRangeFromPoint) {
+    const range = doc.caretRangeFromPoint(x, y);
+    if (range) return { node: range.startContainer, offset: range.startOffset };
+  }
+  return null;
+};
+
+const getViewportAnchorCfi = (view: FoliateView): string | null => {
+  const rendererRect = view.renderer.getBoundingClientRect();
+  const anchorX = rendererRect.left + rendererRect.width / 2;
+  const anchorY = rendererRect.top + rendererRect.height * 0.4;
+  const contents = view.renderer.getContents?.() ?? [];
+
+  for (const content of contents) {
+    const { doc, index } = content;
+    if (!doc || index === undefined) continue;
+
+    const frameRect = doc.defaultView?.frameElement?.getBoundingClientRect();
+    if (!frameRect) continue;
+    if (
+      anchorX < frameRect.left ||
+      anchorX > frameRect.right ||
+      anchorY < frameRect.top ||
+      anchorY > frameRect.bottom
+    ) {
+      continue;
+    }
+
+    const pos = findPositionAtPoint(doc, anchorX - frameRect.left, anchorY - frameRect.top);
+    if (!pos) continue;
+
+    try {
+      const range = doc.createRange();
+      range.setStart(pos.node, pos.offset);
+      range.collapse(true);
+      return view.getCFI(index, range);
+    } catch {
+      return null;
+    }
+  }
+
+  return null;
+};
+
 const RSVPControl: React.FC<RSVPControlProps> = ({ bookKey, gridInsets }) => {
   const _ = useTranslation();
   const { envConfig } = useEnv();
@@ -194,12 +244,20 @@ const RSVPControl: React.FC<RSVPControlProps> = ({ bookKey, gridInsets }) => {
       handleClose();
     };
 
+    const handleComprehensionStart = (event: CustomEvent) => {
+      const { bookKey: quizBookKey } = event.detail;
+      if (bookKey !== quizBookKey) return;
+      handleNormalReadingQuiz();
+    };
+
     eventDispatcher.on('rsvp-start', handleRSVPStart);
     eventDispatcher.on('rsvp-stop', handleRSVPStop);
+    eventDispatcher.on('comprehension-start', handleComprehensionStart);
 
     return () => {
       eventDispatcher.off('rsvp-start', handleRSVPStart);
       eventDispatcher.off('rsvp-stop', handleRSVPStop);
+      eventDispatcher.off('comprehension-start', handleComprehensionStart);
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [bookKey]);
@@ -535,6 +593,66 @@ const RSVPControl: React.FC<RSVPControlProps> = ({ bookKey, gridInsets }) => {
     controller.pause();
     comprehensionOfferRef.current?.(words);
   }, []);
+
+  const handleNormalReadingQuiz = useCallback(() => {
+    const view = getView(bookKey);
+    const bookData = getBookData(bookKey);
+    const progress = getProgress(bookKey);
+
+    if (!view || !bookData?.book) {
+      eventDispatcher.dispatch('toast', {
+        message: _('Unable to start comprehension quiz'),
+        type: 'error',
+      });
+      return;
+    }
+
+    if (!settings.aiSettings?.enabled) {
+      eventDispatcher.dispatch('toast', {
+        message: _('AI is not enabled'),
+        type: 'warning',
+      });
+      return;
+    }
+
+    if (bookData.book.format === 'PDF' || bookData.isFixedLayout) {
+      eventDispatcher.dispatch('toast', {
+        message: _('Comprehension quiz is not supported for this book'),
+        type: 'warning',
+      });
+      return;
+    }
+
+    const primaryLanguage = bookData.book.primaryLanguage;
+    if (primaryLanguage?.toLowerCase().startsWith('zh')) {
+      initJieba().catch((e) => {
+        console.warn('Failed to initialize jieba-wasm; falling back to Intl.Segmenter:', e);
+      });
+    }
+
+    if (!controllerRef.current) {
+      controllerRef.current = new RSVPController(view, bookKey, primaryLanguage);
+    } else {
+      controllerRef.current.setPrimaryLanguage(primaryLanguage);
+    }
+
+    const controller = controllerRef.current;
+    controller.setToc(bookData.bookDoc?.toc);
+
+    const anchorCfi = getViewportAnchorCfi(view) ?? progress?.location ?? null;
+    if (anchorCfi) controller.setCurrentCfi(anchorCfi);
+
+    const words = controller.getCurrentChapterWordsAtCfi(anchorCfi);
+    if (words.length < 30) {
+      eventDispatcher.dispatch('toast', {
+        message: _('Not enough chapter text for a quiz yet'),
+        type: 'warning',
+      });
+      return;
+    }
+
+    comprehensionOfferRef.current?.(words);
+  }, [_, bookKey, getBookData, getProgress, getView, settings.aiSettings]);
 
   // Fired by the controller when RSVP finishes a chapter inside a spine
   // section (e.g. between 1984's Part-internal chapters). The controller has

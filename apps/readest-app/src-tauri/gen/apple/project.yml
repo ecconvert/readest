@@ -131,6 +131,12 @@ targets:
       path: ShareExtension/Info.plist
       properties:
         CFBundleDisplayName: Readest
+        # Must match the parent app's CFBundleShortVersionString (kept in
+        # sync with package.json via Tauri's xcode-script, which stamps
+        # CFBundleVersion but NOT CFBundleShortVersionString). App Store
+        # Connect rejects uploads where an extension's marketing version
+        # diverges from its parent — bump this alongside package.json.
+        CFBundleShortVersionString: 0.11.4
         NSExtension:
           NSExtensionPointIdentifier: com.apple.share-services
           NSExtensionPrincipalClass: $(PRODUCT_MODULE_NAME).ShareViewController

@@ -5,11 +5,13 @@ import { RxSlider as SliderIcon } from 'react-icons/rx';
 import { RiFontFamily as FontIcon } from 'react-icons/ri';
 import { PiSun as ColorIcon } from 'react-icons/pi';
 import { MdOutlineHeadphones as TTSIcon } from 'react-icons/md';
+import { MdOutlineQuiz as QuizIcon } from 'react-icons/md';
 import { useEnv } from '@/context/EnvContext';
 import { useReaderStore } from '@/store/readerStore';
 import { useTranslation } from '@/hooks/useTranslation';
 import { useSidebarStore } from '@/store/sidebarStore';
 import { useResponsiveSize } from '@/hooks/useResponsiveSize';
+import { eventDispatcher } from '@/utils/event';
 import Button from '@/components/Button';
 import { Insets } from '@/types/misc';
 
@@ -38,6 +40,9 @@ export const NavigationBar: React.FC<NavigationBarProps> = ({
   const tocIconSize = useResponsiveSize(23);
   const fontIconSize = useResponsiveSize(18);
   const navPadding = isMobile ? `${gridInsets.bottom * 0.33 + 16}px` : '0px';
+  const startComprehension = () => {
+    eventDispatcher.dispatch('comprehension-start', { bookKey });
+  };
 
   return (
     <div
@@ -81,6 +86,7 @@ export const NavigationBar: React.FC<NavigationBarProps> = ({
         icon={<TTSIcon className={viewState?.ttsEnabled ? 'text-blue-500' : ''} />}
         onClick={() => onSetActionTab('tts')}
       />
+      <Button label={_('Comprehension Quiz')} icon={<QuizIcon />} onClick={startComprehension} />
     </div>
   );
 };
