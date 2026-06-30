@@ -43,6 +43,9 @@ const ControlPanel: React.FC<SettingsPanelPanelProp> = ({ bookKey, onRegisterRes
   const [annotationQuickAction, setAnnotationQuickAction] = useState(
     viewSettings.annotationQuickAction,
   );
+  const [penDefaultsToHighlight, setPenDefaultsToHighlight] = useState(
+    viewSettings.penDefaultsToHighlight,
+  );
   const [copyToNotebook, setCopyToNotebook] = useState(viewSettings.copyToNotebook);
   const [animated, setAnimated] = useState(viewSettings.animated);
   const [isEink, setIsEink] = useState(viewSettings.isEink);
@@ -73,6 +76,7 @@ const ControlPanel: React.FC<SettingsPanelPanelProp> = ({ bookKey, onRegisterRes
       fullscreenClickArea: setFullscreenClickArea,
       disableDoubleClick: setIsDisableDoubleClick,
       enableAnnotationQuickActions: setEnableAnnotationQuickActions,
+      penDefaultsToHighlight: setPenDefaultsToHighlight,
       copyToNotebook: setCopyToNotebook,
     });
     pageTurnerResetRef.current();
@@ -227,6 +231,18 @@ const ControlPanel: React.FC<SettingsPanelPanelProp> = ({ bookKey, onRegisterRes
   }, [enableAnnotationQuickActions]);
 
   useEffect(() => {
+    saveViewSettings(
+      envConfig,
+      bookKey,
+      'penDefaultsToHighlight',
+      penDefaultsToHighlight,
+      false,
+      false,
+    );
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [penDefaultsToHighlight]);
+
+  useEffect(() => {
     saveViewSettings(envConfig, bookKey, 'copyToNotebook', copyToNotebook, false, false);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [copyToNotebook]);
@@ -350,6 +366,15 @@ const ControlPanel: React.FC<SettingsPanelPanelProp> = ({ bookKey, onRegisterRes
             disabled={!enableAnnotationQuickActions}
           />
         </SettingsRow>
+        {appService?.isMobileApp && (
+          <SettingsSwitchRow
+            label={_('Apple Pencil Highlights')}
+            description={_('Hold briefly, then drag the pencil to highlight')}
+            checked={penDefaultsToHighlight}
+            onChange={() => setPenDefaultsToHighlight(!penDefaultsToHighlight)}
+            data-setting-id='settings.control.penDefaultsToHighlight'
+          />
+        )}
         <SettingsSwitchRow
           label={_('Copy to Notebook')}
           checked={copyToNotebook}

@@ -152,7 +152,7 @@ export const useTextSelector = (
   const handlePointerDown = (doc: Document, index: number, ev: PointerEvent) => {
     lastPointerType.current = ev.pointerType;
 
-    if (isInstantAnnotationEnabled()) {
+    if (isInstantAnnotationEnabled(ev.pointerType)) {
       const eligible = handleInstantAnnotationPointerDown(doc, index, ev);
       if (!eligible) return;
       const isTouch = ev.pointerType === 'touch' || ev.pointerType === 'pen';

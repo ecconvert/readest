@@ -326,6 +326,9 @@ export interface NoteExportConfig {
 export interface AnnotatorConfig {
   enableAnnotationQuickActions: boolean;
   annotationQuickAction: AnnotationToolType | null;
+  // Apple Pencil opt-in: a pen drag defaults to drag-to-highlight on its own,
+  // independent of the global quick action, so finger selection stays normal.
+  penDefaultsToHighlight: boolean;
   copyToNotebook: boolean;
   noteExportConfig: NoteExportConfig;
 }

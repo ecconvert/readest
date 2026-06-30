@@ -33,14 +33,29 @@ export const useInstantAnnotation = ({
   const startIndexRef = useRef<number>(0);
   const previewAnnotationRef = useRef<BookNote | null>(null);
   const annotationIdRef = useRef<string>(uniqueId());
+  // The pointer type of the gesture in progress, so move/up/cancel can re-check
+  // the (pen-aware) enable gate even when the cancel handler has no event.
+  const activePointerTypeRef = useRef<string>('mouse');
 
-  const isInstantAnnotationEnabled = useCallback(() => {
-    const viewSettings = getViewSettings(bookKey);
-    return (
-      viewSettings?.enableAnnotationQuickActions &&
-      viewSettings?.annotationQuickAction === 'highlight'
-    );
-  }, [bookKey, getViewSettings]);
+  const isInstantAnnotationEnabled = useCallback(
+    (pointerType?: string) => {
+      const viewSettings = getViewSettings(bookKey);
+      // Global quick action: drag-to-highlight for every input type.
+      if (
+        viewSettings?.enableAnnotationQuickActions &&
+        viewSettings?.annotationQuickAction === 'highlight'
+      ) {
+        return true;
+      }
+      // Apple Pencil opt-in: the pen defaults to drag-to-highlight on its own,
+      // so finger selection stays normal while the pen highlights.
+      if (viewSettings?.penDefaultsToHighlight && pointerType === 'pen') {
+        return true;
+      }
+      return false;
+    },
+    [bookKey, getViewSettings],
+  );
 
   const clearPreviewAnnotation = useCallback(() => {
     if (previewAnnotationRef.current) {
@@ -167,7 +182,8 @@ export const useInstantAnnotation = ({
 
   const handleInstantAnnotationPointerDown = useCallback(
     (doc: Document, index: number, ev: PointerEvent) => {
-      if (!isInstantAnnotationEnabled()) return false;
+      if (!isInstantAnnotationEnabled(ev.pointerType)) return false;
+      activePointerTypeRef.current = ev.pointerType;
 
       // Only handle primary button (left click / touch / stylus)
       if (ev.button !== 0) return false;
@@ -186,7 +202,7 @@ export const useInstantAnnotation = ({
 
   const handleInstantAnnotationPointerMove = useCallback(
     (doc: Document, index: number, ev: PointerEvent) => {
-      if (!isInstantAnnotationEnabled()) return false;
+      if (!isInstantAnnotationEnabled(ev.pointerType)) return false;
 
       const view = getView(bookKey);
       if (!startPointRef.current || !startDocRef.current || !view) {
@@ -238,7 +254,7 @@ export const useInstantAnnotation = ({
   );
 
   const handleInstantAnnotationPointerCancel = useCallback(() => {
-    if (!isInstantAnnotationEnabled()) return false;
+    if (!isInstantAnnotationEnabled(activePointerTypeRef.current)) return false;
 
     startPointRef.current = null;
     startDocRef.current = null;
@@ -248,7 +264,7 @@ export const useInstantAnnotation = ({
 
   const handleInstantAnnotationPointerUp = useCallback(
     async (doc: Document, index: number, ev: PointerEvent) => {
-      if (!isInstantAnnotationEnabled()) return false;
+      if (!isInstantAnnotationEnabled(ev.pointerType)) return false;
 
       const view = getView(bookKey);
       if (!startPointRef.current || !view) {
